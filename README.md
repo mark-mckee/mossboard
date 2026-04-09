@@ -110,14 +110,27 @@ Only `frontend` (port `3444`) needs to be exposed publicly. `backend` (port `544
 - [Docker](https://docs.docker.com/get-docker/) 24+
 - [Docker Compose](https://docs.docker.com/compose/) v2 (`docker compose`, not `docker-compose`)
 
-### Step 1 — Clone the repository
+Two installation methods are available: using **pre-built images from Docker Hub** (recommended, no build step) or **building from source**.
+
+---
+
+### Option A — Docker Hub images (recommended)
+
+Pre-built images are published on Docker Hub:
+
+| Image | Description |
+|-------|-------------|
+| [`lanbugsde/mossboard-backend`](https://hub.docker.com/r/lanbugsde/mossboard-backend) | Python/APIFlask backend + Celery |
+| [`lanbugsde/mossboard-frontend`](https://hub.docker.com/r/lanbugsde/mossboard-frontend) | Vue SPA served via nginx |
+
+#### Step 1 — Clone the repository
 
 ```bash
 git clone https://github.com/lanbugs/mossboard.git
 cd mossboard
 ```
 
-### Step 2 — Create the environment file
+#### Step 2 — Create the environment file
 
 ```bash
 cp .env.example .env
@@ -126,7 +139,58 @@ cp .env.example .env
 Open `.env` in your editor and set the required values (see [Configuration](#configuration) below).  
 At minimum you must set `SECRET_KEY` and `ADMIN_PASSWORD`.
 
-### Step 3 — Start all services
+#### Step 3 — Start all services
+
+```bash
+docker compose -f docker-compose.hub.yml up -d
+```
+
+Images are pulled from Docker Hub automatically — no local build required.
+
+Check that all containers are running:
+
+```bash
+docker compose -f docker-compose.hub.yml ps
+```
+
+```
+NAME                STATUS          PORTS
+mossboard-backend   Up              0.0.0.0:5444->5000/tcp
+mossboard-beat      Up
+mossboard-frontend  Up              0.0.0.0:3444->80/tcp
+mossboard-mongo     Up              27017/tcp
+mossboard-redis     Up              6379/tcp
+mossboard-worker    Up
+```
+
+#### Keeping Hub images up to date
+
+```bash
+docker compose -f docker-compose.hub.yml pull
+docker compose -f docker-compose.hub.yml up -d
+```
+
+---
+
+### Option B — Build from source
+
+#### Step 1 — Clone the repository
+
+```bash
+git clone https://github.com/lanbugs/mossboard.git
+cd mossboard
+```
+
+#### Step 2 — Create the environment file
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` in your editor and set the required values (see [Configuration](#configuration) below).  
+At minimum you must set `SECRET_KEY` and `ADMIN_PASSWORD`.
+
+#### Step 3 — Start all services
 
 ```bash
 docker compose up -d
@@ -345,6 +409,15 @@ docker cp $(docker compose ps -q mongo):/tmp/dump ./backup
 ```
 
 ### Keeping images up to date
+
+**Docker Hub images:**
+
+```bash
+docker compose -f docker-compose.hub.yml pull
+docker compose -f docker-compose.hub.yml up -d
+```
+
+**Build from source:**
 
 ```bash
 git pull

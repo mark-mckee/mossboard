@@ -1,0 +1,47 @@
+services:
+  backend:
+    image: lanbugsde/mossboard-backend:latest
+    depends_on:
+      - mongo
+      - redis
+    env_file: .env
+    ports:
+      - "5444:5000"
+
+  worker:
+    image: lanbugsde/mossboard-backend:latest
+    command: celery -A celery_worker.celery worker --loglevel=info
+    depends_on:
+      - mongo
+      - redis
+    env_file: .env
+    cap_add:
+      - NET_RAW   # required for ICMP monitors (ping)
+
+  beat:
+    image: lanbugsde/mossboard-backend:latest
+    command: celery -A celery_worker.celery beat --loglevel=info
+    depends_on:
+      - mongo
+      - redis
+    env_file: .env
+
+  frontend:
+    image: lanbugsde/mossboard-frontend:latest
+    ports:
+      - "3444:80"
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    #ports:
+    #  - "27017:27017"
+
+  redis:
+    image: redis:7-alpine
+    #ports:
+    #  - "6379:6379"
+
+volumes:
+  mongo_data:
