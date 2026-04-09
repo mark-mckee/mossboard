@@ -76,4 +76,4 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
           # Optional: Multi-Arch Build (auskommentiert lassen wenn nicht nötig)
-          # platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64
