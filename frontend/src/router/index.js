@@ -1,0 +1,36 @@
+import { createRouter, createWebHistory } from 'vue-router';
+import StatusPage from '../views/StatusPage.vue';
+import ServiceDetail from '../views/ServiceDetail.vue';
+import Monitor from '../views/Monitor.vue';
+import AdminLayout from '../views/admin/AdminLayout.vue';
+import Dashboard from '../views/admin/Dashboard.vue';
+import Sections from '../views/admin/Sections.vue';
+import Services from '../views/admin/Services.vue';
+import Incidents from '../views/admin/Incidents.vue';
+import Maintenance from '../views/admin/Maintenance.vue';
+import Tokens from '../views/admin/Tokens.vue';
+import Users from '../views/admin/Users.vue';
+import Monitors from '../views/admin/Monitors.vue';
+
+export default createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', component: StatusPage },
+    { path: '/monitor', component: Monitor },
+    { path: '/services/:slug', component: ServiceDetail },
+    {
+      path: '/admin',
+      component: AdminLayout,
+      children: [
+        { path: '',            component: Dashboard   },
+        { path: 'sections',   component: Sections    },
+        { path: 'services',   component: Services    },
+        { path: 'incidents',  component: Incidents   },
+        { path: 'maintenance',component: Maintenance },
+        { path: 'monitors',   component: Monitors    },
+        { path: 'tokens',     component: Tokens      },
+        { path: 'users',      component: Users       },
+      ],
+    },
+  ],
+});

@@ -1,0 +1,371 @@
+"""
+Active monitoring tasks.
+
+Check types:
+  - http:  HTTP(S) request; evaluates response code + response time.
+  - tcp:   TCP connection to host:port; evaluates connection time.
+  - icmp:  Ping (subprocess); evaluates packet loss % + average round-trip time.
+
+Status determination (worst wins):
+  Thresholds are sorted ascending by their limit value.
+  The first threshold whose limit >= measured value is used.
+  If no threshold matches the status falls back to `failure_status`.
+
+ICMP note:
+  Requires the `ping` binary and, on Linux, either root or
+  the cap_net_raw capability (add `cap_add: [NET_RAW]` to docker-compose).
+"""
+
+import re
+import socket
+import subprocess
+import time
+from datetime import datetime
+
+import requests as _requests
+
+from app.extensions import celery
+from app.models import Service, StatusSnapshot
+from app.models.monitor import Monitor
+
+_STATUS_PRIORITY = {
+    "operational": 1,
+    "unknown": 2,
+    "under_maintenance": 3,
+    "performance_issues": 4,
+    "partial_outage": 5,
+    "major_outage": 6,
+}
+
+
+def _worst(s1, s2):
+    """Return whichever of the two status strings has higher severity."""
+    if s1 is None:
+        return s2
+    if s2 is None:
+        return s1
+    return s1 if _STATUS_PRIORITY.get(s1, 0) >= _STATUS_PRIORITY.get(s2, 0) else s2
+
+
+def _resolve_response_time(thresholds, response_ms, failure_status):
+    """Map a measured response time to a status via sorted thresholds."""
+    for t in sorted(thresholds, key=lambda x: x.max_ms):
+        if response_ms <= t.max_ms:
+            return t.status
+    return failure_status
+
+
+def _resolve_packet_loss(thresholds, loss_percent, failure_status):
+    """Map a measured packet-loss percentage to a status via sorted thresholds."""
+    for t in sorted(thresholds, key=lambda x: x.max_percent):
+        if loss_percent <= t.max_percent:
+            return t.status
+    return failure_status
+
+
+# ── Probe implementations ─────────────────────────────────────────────────────
+
+def _check_http(monitor):
+    """Perform an HTTP GET and return a result dict."""
+    result = {"type": "http", "url": monitor.url}
+    try:
+        t0 = time.time()
+        resp = _requests.get(
+            monitor.url,
+            timeout=monitor.timeout_seconds,
+            allow_redirects=True,
+        )
+        response_ms = (time.time() - t0) * 1000
+        result["response_ms"] = round(response_ms, 2)
+        result["status_code"] = resp.status_code
+
+        if resp.status_code not in monitor.expected_status_codes:
+            result["error"] = f"Unexpected HTTP {resp.status_code}"
+            result["resolved_status"] = monitor.failure_status
+        else:
+            result["resolved_status"] = _resolve_response_time(
+                monitor.response_time_thresholds, response_ms, monitor.failure_status
+            )
+    except _requests.Timeout:
+        result["error"] = "timeout"
+        result["resolved_status"] = monitor.failure_status
+    except _requests.RequestException as exc:
+        result["error"] = str(exc)
+        result["resolved_status"] = monitor.failure_status
+    return result
+
+
+def _check_tcp(monitor):
+    """Open a TCP connection and return a result dict."""
+    result = {"type": "tcp", "host": monitor.host, "port": monitor.port}
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(monitor.timeout_seconds)
+    t0 = time.time()
+    try:
+        sock.connect((monitor.host, monitor.port))
+        response_ms = (time.time() - t0) * 1000
+        result["response_ms"] = round(response_ms, 2)
+        result["resolved_status"] = _resolve_response_time(
+            monitor.response_time_thresholds, response_ms, monitor.failure_status
+        )
+    except socket.timeout:
+        result["error"] = "timeout"
+        result["resolved_status"] = monitor.failure_status
+    except (ConnectionRefusedError, OSError) as exc:
+        result["error"] = str(exc)
+        result["resolved_status"] = monitor.failure_status
+    finally:
+        sock.close()
+    return result
+
+
+def _check_icmp(monitor):
+    """
+    Run `ping -c <count> -W <timeout> <host>` and parse the output.
+    Evaluates both packet loss and average RTT.
+    """
+    count = 3
+    result = {"type": "icmp", "host": monitor.host}
+    try:
+        cmd = [
+            "ping",
+            "-c", str(count),
+            "-W", str(monitor.timeout_seconds),
+            monitor.host,
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=monitor.timeout_seconds * count + 10,
+        )
+        output = proc.stdout + proc.stderr
+
+        # Packet loss: "X% packet loss"
+        loss_match = re.search(r"(\d+(?:\.\d+)?)%\s+packet loss", output)
+        loss_percent = float(loss_match.group(1)) if loss_match else 100.0
+        result["packet_loss_percent"] = loss_percent
+
+        # Average RTT: "rtt min/avg/max/mdev = X/X/X/X ms"
+        rtt_match = re.search(r"min/avg/max(?:/mdev)?\s*=\s*[\d.]+/([\d.]+)/", output)
+        avg_ms = float(rtt_match.group(1)) if rtt_match else None
+        if avg_ms is not None:
+            result["response_ms"] = avg_ms
+
+        if loss_percent == 100.0:
+            result["error"] = "100% packet loss"
+            result["resolved_status"] = monitor.failure_status
+        else:
+            # Evaluate packet loss first
+            loss_status = _resolve_packet_loss(
+                monitor.packet_loss_thresholds, loss_percent, monitor.failure_status
+            )
+            # Then response time (if available)
+            rtt_status = None
+            if avg_ms is not None and monitor.response_time_thresholds:
+                rtt_status = _resolve_response_time(
+                    monitor.response_time_thresholds, avg_ms, monitor.failure_status
+                )
+            result["resolved_status"] = _worst(loss_status, rtt_status) or loss_status
+
+    except subprocess.TimeoutExpired:
+        result["error"] = "ping timeout"
+        result["resolved_status"] = monitor.failure_status
+    except FileNotFoundError:
+        result["error"] = "ping binary not found"
+        result["resolved_status"] = monitor.failure_status
+    except Exception as exc:
+        result["error"] = str(exc)
+        result["resolved_status"] = monitor.failure_status
+    return result
+
+
+def _check_dns(monitor):
+    """
+    Resolve a DNS name using dnspython and return a result dict.
+
+    Checks:
+      1. Resolution succeeds within timeout → otherwise failure_status
+      2. If dns_expected_values is configured, every expected value must appear
+         in the answer set (case-insensitive for names, exact for IPs/text) →
+         otherwise failure_status
+      3. Response-time thresholds applied to query latency
+    """
+    import dns.resolver
+    import dns.exception
+
+    record_type = (monitor.dns_record_type or "A").upper()
+    result = {
+        "type": "dns",
+        "host": monitor.host,
+        "record_type": record_type,
+        "dns_server": monitor.dns_server or None,
+    }
+
+    resolver = dns.resolver.Resolver()
+    if monitor.dns_server:
+        resolver.nameservers = [monitor.dns_server]
+    resolver.timeout  = monitor.timeout_seconds
+    resolver.lifetime = monitor.timeout_seconds
+
+    try:
+        t0 = time.time()
+        answers = resolver.resolve(monitor.host, record_type)
+        response_ms = (time.time() - t0) * 1000
+
+        result["response_ms"] = round(response_ms, 2)
+
+        # Collect answer values as strings
+        resolved = [str(r).rstrip(".") for r in answers]
+        result["resolved_values"] = resolved
+
+        # Check expected values (all must appear)
+        expected = [v.strip().rstrip(".") for v in (monitor.dns_expected_values or []) if v.strip()]
+        if expected:
+            resolved_lower = [v.lower() for v in resolved]
+            missing = [e for e in expected if e.lower() not in resolved_lower]
+            if missing:
+                result["error"] = f"Expected {missing} not in answer {resolved}"
+                result["resolved_status"] = monitor.failure_status
+                return result
+
+        result["resolved_status"] = _resolve_response_time(
+            monitor.response_time_thresholds, response_ms, monitor.failure_status
+        )
+
+    except dns.resolver.NXDOMAIN:
+        result["error"] = "NXDOMAIN"
+        result["resolved_status"] = monitor.failure_status
+    except dns.resolver.NoAnswer:
+        result["error"] = f"No {record_type} record"
+        result["resolved_status"] = monitor.failure_status
+    except dns.resolver.NoNameservers:
+        result["error"] = "No nameservers available"
+        result["resolved_status"] = monitor.failure_status
+    except dns.exception.Timeout:
+        result["error"] = "timeout"
+        result["resolved_status"] = monitor.failure_status
+    except Exception as exc:
+        result["error"] = str(exc)
+        result["resolved_status"] = monitor.failure_status
+
+    return result
+
+
+_CHECKERS = {
+    "http": _check_http,
+    "tcp":  _check_tcp,
+    "icmp": _check_icmp,
+    "dns":  _check_dns,
+}
+
+
+# ── Celery tasks ──────────────────────────────────────────────────────────────
+
+def _apply_service_status(service, new_status, monitor_name, error_note=""):
+    """Write status + snapshot to the linked service."""
+    old_status = service.status
+    service.status            = new_status
+    service.updated_at        = datetime.utcnow()
+    service.status_updated_at = datetime.utcnow()
+    service.save()
+    note = f"[monitor:{monitor_name}]"
+    if error_note:
+        note += f" {error_note}"
+    StatusSnapshot(service=service, status=new_status, note=note.strip()).save()
+    return f"{monitor_name}: {old_status} → {new_status}"
+
+
+@celery.task(name="app.tasks.monitors.run_single_monitor")
+def run_single_monitor(monitor_id: str):
+    """Run the check for a single monitor and update the linked service.
+
+    Confirmation logic:
+      If confirm_seconds > 0, a new candidate status must be observed
+      continuously for at least confirm_seconds before it is applied to
+      the linked service.  Each check that disagrees with the current service
+      status starts (or continues) a confirmation window.  If the candidate
+      status changes during the window the timer resets.  Once the window
+      elapses the status is applied and the pending state is cleared.
+    """
+    monitor = Monitor.objects(id=monitor_id).first()
+    if not monitor or not monitor.active:
+        return "skipped"
+
+    checker = _CHECKERS.get(monitor.type)
+    if not checker:
+        return f"unknown type: {monitor.type}"
+
+    result = checker(monitor)
+    candidate = result.get("resolved_status", monitor.failure_status)
+    now = datetime.utcnow()
+
+    monitor.last_result = result
+    monitor.last_status = candidate
+    monitor.last_checked_at = now
+
+    service = monitor.service
+    action = f"{monitor.name}: {candidate} (unchanged)"
+
+    if service:
+        current = service.status
+
+        if candidate == current:
+            # Situation matches current service status — reset any pending window.
+            monitor.pending_status = None
+            monitor.pending_since = None
+        elif monitor.confirm_seconds == 0:
+            # Immediate mode: apply right away.
+            action = _apply_service_status(
+                service, candidate, monitor.name, result.get("error", "")
+            )
+            monitor.pending_status = None
+            monitor.pending_since = None
+        else:
+            # Confirmation mode.
+            if monitor.pending_status != candidate:
+                # New candidate — start (or restart) the confirmation window.
+                monitor.pending_status = candidate
+                monitor.pending_since = now
+                action = (
+                    f"{monitor.name}: pending {candidate} "
+                    f"(need {monitor.confirm_seconds}s, just started)"
+                )
+            else:
+                # Same candidate — check if the window has elapsed.
+                elapsed = (now - monitor.pending_since).total_seconds()
+                if elapsed >= monitor.confirm_seconds:
+                    action = _apply_service_status(
+                        service, candidate, monitor.name, result.get("error", "")
+                    )
+                    monitor.pending_status = None
+                    monitor.pending_since = None
+                else:
+                    remaining = int(monitor.confirm_seconds - elapsed)
+                    action = (
+                        f"{monitor.name}: pending {candidate} "
+                        f"({remaining}s remaining)"
+                    )
+
+    monitor.save()
+    return action
+
+
+@celery.task(name="app.tasks.monitors.run_due_monitors")
+def run_due_monitors():
+    """
+    Dispatched every minute by Celery Beat.
+    Finds monitors whose next-check time has passed and queues them.
+    """
+    now = datetime.utcnow()
+    queued = 0
+    for monitor in Monitor.objects(active=True):
+        if monitor.last_checked_at is None:
+            due = True
+        else:
+            elapsed = (now - monitor.last_checked_at).total_seconds()
+            due = elapsed >= monitor.interval_seconds
+        if due:
+            run_single_monitor.delay(str(monitor.id))
+            queued += 1
+    return f"Queued {queued} monitor checks"

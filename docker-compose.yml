@@ -1,0 +1,47 @@
+services:
+  backend:
+    build: ./backend
+    depends_on:
+      - mongo
+      - redis
+    env_file: .env
+    ports:
+      - "5444:5000"
+
+  worker:
+    build: ./backend
+    command: celery -A celery_worker.celery worker --loglevel=info
+    depends_on:
+      - mongo
+      - redis
+    env_file: .env
+    cap_add:
+      - NET_RAW   # required for ICMP monitors (ping)
+
+  beat:
+    build: ./backend
+    command: celery -A celery_worker.celery beat --loglevel=info
+    depends_on:
+      - mongo
+      - redis
+    env_file: .env
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3444:80"
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    #ports:
+    #  - "27017:27017"
+
+  redis:
+    image: redis:7-alpine
+    #ports:
+    #  - "6379:6379"
+
+volumes:
+  mongo_data:
