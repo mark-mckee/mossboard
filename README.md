@@ -14,17 +14,20 @@ Built with Python, Vue 3, and MongoDB.
 
 ## Features
 
-- **Public status page** — overall status banner, collapsible service sections, 24-hour history bars, scheduled maintenance notices
-- **Service detail** — 5-minute granularity history bar, 30-day uptime summary, status change log, incident timeline
+- **Public status page** — overall status banner, collapsible service sections, 24-hour history bars, scheduled maintenance notices, optional incident timeline
+- **Service detail** — 5-minute granularity history bar, 30-day and 12-month uptime summaries, inline metric charts, status change log, incident timeline
 - **Fullscreen monitor** — optimized for wall displays; live clock, pulsing indicators for degraded services
+- **Metrics** — push time-series data via API token; display as current value and/or sparkline chart on the status page and service detail view
 - **Active monitoring** — HTTP, TCP, ICMP (ping), and DNS checks; threshold-based status mapping; anti-flap confirmation periods; staleness detection
+- **HTTP monitor options** — custom proxy (host + port), SSL certificate verification toggle, response body regex validation
 - **Incident management** — multi-step incident lifecycle: Investigating → Identified → Monitoring → Resolved
-- **Scheduled maintenance** — windows with optional auto-status: service is automatically set to `under_maintenance` on start and restored to `operational` on end
-- **API token auth** — push status updates from CI/CD or external tools via `PATCH /api/v1/services/{slug}/status`
-- **Status change notes** — attach an optional reason to every status change; shown in the service log
-- **Admin interface** — manage sections, services, incidents, maintenance, monitors, API tokens, and users
+- **Scheduled maintenance** — windows with optional auto-status: service is automatically set to `under_maintenance` on start and restored to `operational` on end; active monitors are paused for the duration
+- **API token auth** — push status updates and metric data from CI/CD or external tools; tokens can be scoped to specific services and/or specific metrics, with independent master switches for each operation type
+- **Status change notes** — attach an optional reason to every status change; shown in the service log; monitor-triggered changes include the measured value (response time, HTTP code, packet loss, etc.)
+- **Admin interface** — manage sections, services, incidents, maintenance, monitors, metrics, API tokens, users, and global settings
+- **Global settings** — configurable site title, default theme, wide layout, incident timeline, no-data behavior
 - **Swagger UI** — interactive API docs at `/docs` with Bearer token support
-- **Dark / light theme** — toggled in the header and admin sidebar; persisted in `localStorage`
+- **Dark / light theme** — toggled in the header and admin sidebar; persisted in `localStorage`; server-side default respected on first visit
 
 ---
 
@@ -287,19 +290,62 @@ Go to **Admin → Monitors → New Monitor** to configure automatic checks for y
 5. Optionally set a **confirmation period** to avoid status flapping
 6. Click **Save**, then **Run now** to test immediately
 
-### 3. Create API tokens (optional)
+### 3. Create metrics (optional)
 
-Go to **Admin → API Tokens** to generate tokens for pushing status updates from CI/CD pipelines, deployment scripts, or monitoring tools. Tokens can be restricted to specific services.
+Go to **Admin → Metrics → New Metric** to define time-series metrics for any service:
 
-### 4. Add users
+1. Select the **service** to attach the metric to
+2. Set a **name** and optional **suffix** (e.g. `Users Online` / `users`)
+3. Choose a **metric type**: *Average*, *Sum*, or *Last Value*
+4. Set the **default view** window: Last Hour, Today, Last 7 Days, or Last 30 Days
+5. Optionally configure a **threshold** (seconds) — pushes within the window are merged instead of stacked
+6. Enable **Display Chart** to show an inline sparkline on the status page
+
+Push data points to a metric using a Bearer token:
+
+```bash
+curl -X POST https://your-domain/api/v1/metrics/{metric-id}/points \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"value": 42}'
+```
+
+An optional `timestamp` field (ISO 8601) can be included to back-date a point.
+
+### 4. Create API tokens (optional)
+
+Go to **Admin → API Tokens** to generate tokens for pushing status updates or metric data from CI/CD pipelines, deployment scripts, or monitoring tools.
+
+Each token has two independent permission switches:
+
+| Permission | Controls |
+|---|---|
+| **Service status updates** | `PATCH /api/v1/services/{slug}/status` |
+| **Metric data pushes** | `POST /api/v1/metrics/{id}/points` |
+
+Each permission can be further restricted to a specific list of services or metrics. Leaving a list empty grants access to all resources of that type.
+
+### 5. Add users
 
 Go to **Admin → Users** to create dedicated accounts. Two roles are available:
 - **Admin** — full access to all admin features
 - **Viewer** — read-only access to the admin interface
 
-### 5. Schedule maintenance
+### 6. Schedule maintenance
 
-Go to **Admin → Maintenance** to create planned maintenance windows. Enable **Auto-status** to have MOSSBoard automatically set the service to `under_maintenance` when the window starts and restore it to `operational` when it ends.
+Go to **Admin → Maintenance** to create planned maintenance windows. Enable **Auto-status** to have MOSSBoard automatically set the service to `under_maintenance` when the window starts and restore it to `operational` when it ends. Active monitors are paused while a service is in maintenance state and will not override the status.
+
+### 7. Configure global settings
+
+Go to **Admin → Settings** to adjust board-wide behaviour:
+
+| Setting | Description |
+|---|---|
+| **Site title** | Displayed in the public page header and monitor view |
+| **Default theme** | Dark or light — applied on first visit; explicit browser preference always takes priority |
+| **Wide layout** | Expands public pages from 896 px to 1152 px |
+| **Incident timeline** | Show a day-grouped incident history at the bottom of the status page, with a configurable look-back window (1–90 days) |
+| **No-data behavior** | How periods without snapshot data are handled in uptime calculations: *Unknown* (counts as downtime), *Operational* (counts as uptime), or *Exclude* (omitted from the percentage) |
 
 ---
 
@@ -315,6 +361,14 @@ Monitors run as Celery tasks every minute and automatically update the linked se
 | **TCP** | TCP connection to `host:port` — connection time |
 | **ICMP** | `ping -c 3` — packet loss % + average RTT |
 | **DNS** | DNS resolution — answer values + query latency |
+
+### HTTP monitor options
+
+| Option | Description |
+|--------|-------------|
+| **Proxy** | Route requests through an HTTP proxy (`host` + `port`) |
+| **Verify SSL** | Disable TLS certificate verification for self-signed certificates |
+| **Body regex** | Fail the check if the response body does not match the given regular expression |
 
 ### Threshold system
 
@@ -336,6 +390,10 @@ DNS monitors can specify **expected values** (e.g. an IP address). All listed va
 
 Set **Confirmation (s)** to require a new candidate status to be observed continuously for that many seconds before it is applied. Useful for services with occasional brief latency spikes. Set to `0` for immediate changes.
 
+### Maintenance protection
+
+A monitor will never override a service that is currently in `under_maintenance` state — whether set manually or via a scheduled maintenance window. The monitor continues to run and record results but does not apply any status changes until the maintenance is lifted.
+
 ### Staleness detection
 
 Each service can have an optional **Staleness timeout** (seconds). If no status update is received within that window — from any source (monitor, API, or admin) — the service is automatically set to `unknown`. Useful for detecting dead monitors or missing push updates.
@@ -344,7 +402,7 @@ Each service can have an optional **Staleness timeout** (seconds). If no status 
 
 ## API
 
-### Push status from CI/CD or external tools
+### Push a status update
 
 ```bash
 curl -X PATCH https://your-domain/api/v1/services/{slug}/status \
@@ -357,11 +415,23 @@ curl -X PATCH https://your-domain/api/v1/services/{slug}/status \
 
 The `note` field is optional. A status change snapshot is written immediately and appears in the service log.
 
+### Push a metric data point
+
+```bash
+curl -X POST https://your-domain/api/v1/metrics/{metric-id}/points \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"value": 1234}'
+```
+
+An optional `timestamp` (ISO 8601) can be included. If the metric has a **threshold** configured and the last recorded point is within that window, the point is updated in place (sum accumulates; average uses a running mean) instead of creating a new entry.
+
 ### Generate a token
 
 1. Go to **Admin → API Tokens → New Token**
-2. Optionally restrict the token to specific services
-3. Copy the token — it is shown only once
+2. Enable or disable **Service status updates** and **Metric data pushes** independently
+3. Optionally restrict each permission to specific services or metrics
+4. Copy the token — it is shown only once
 
 Full interactive API documentation is available at `/docs`.
 
@@ -464,14 +534,15 @@ docker compose exec backend bash
 mossboard/
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # API blueprints (public, admin, token auth, monitors)
+│   │   ├── api/          # API blueprints (public, admin, token auth, monitors, metrics, settings)
 │   │   ├── models/       # MongoEngine models
 │   │   └── tasks/        # Celery tasks (snapshots, monitors, staleness, maintenance)
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
+│   │   ├── composables/  # Shared state (useTheme, useLayout)
 │   │   ├── views/        # Vue pages (StatusPage, ServiceDetail, Monitor, admin/*)
-│   │   └── components/   # Shared components (StatusBar, StatusBadge, ...)
+│   │   └── components/   # Shared components (StatusBar, StatusBadge, MetricChart, ...)
 │   └── Dockerfile
 └── docker-compose.yml
 ```
