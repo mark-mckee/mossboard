@@ -1,20 +1,28 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { CheckCircle, Clock, AlertTriangle, XCircle, Wrench, HelpCircle, Calendar, Server, Key, Monitor } from 'lucide-vue-next';
+import { CheckCircle, Clock, AlertTriangle, XCircle, Wrench, HelpCircle, Calendar, Server, Key, Monitor, AlertCircle, ArrowRight } from 'lucide-vue-next';
 import SectionCard from '../components/SectionCard.vue';
+import StatusBadge from '../components/StatusBadge.vue';
 import ThemeToggle from '../components/ThemeToggle.vue';
 
-const data = ref(null);
+const data        = ref(null);
 const maintenance = ref([]);
-const error = ref(null);
-let interval = null;
+const incidents   = ref({ open: [], resolved: [], resolved_total: 0, days: 7 });
+const error       = ref(null);
+let interval      = null;
 
 async function fetchAll() {
   try {
-    const [sRes, mRes] = await Promise.all([fetch('/api/v1/status'), fetch('/api/v1/maintenance')]);
+    const [sRes, mRes] = await Promise.all([
+      fetch('/api/v1/status'),
+      fetch('/api/v1/maintenance'),
+    ]);
     if (!sRes.ok) throw new Error('Failed to fetch status');
     data.value = await sRes.json();
     if (mRes.ok) maintenance.value = (await mRes.json()).maintenance;
+    const days = data.value?.incident_timeline_days ?? 7;
+    const iRes = await fetch(`/api/v1/incidents?days=${days}`);
+    if (iRes.ok) incidents.value = await iRes.json();
   } catch (e) { error.value = e.message; }
 }
 
@@ -41,6 +49,45 @@ function isActive(m) {
   return new Date(m.starts_at) <= now && new Date(m.ends_at) >= now;
 }
 
+// ── Incident timeline helpers ─────────────────────────────────────────────────
+
+function localDayKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function dayLabel(key) {
+  const today     = localDayKey(new Date());
+  const yesterday = localDayKey(new Date(Date.now() - 86_400_000));
+  if (key === today)     return 'Today';
+  if (key === yesterday) return 'Yesterday';
+  return new Date(key + 'T12:00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function incidentStatus(inc) {
+  if (inc.resolved_at) return 'resolved';
+  if (inc.updates?.length) return inc.updates[inc.updates.length - 1].status;
+  return 'investigating';
+}
+
+// All N calendar days newest-first, each with its list of incidents (may be empty)
+const timelineDays = computed(() => {
+  const n   = data.value?.incident_timeline_days ?? 7;
+  const map = new Map();
+  for (const inc of [...incidents.value.open, ...incidents.value.resolved]) {
+    const k = localDayKey(new Date(inc.created_at));
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(inc);
+  }
+  const days = [];
+  for (let i = 0; i < n; i++) {
+    const d   = new Date();
+    d.setDate(d.getDate() - i);
+    const key = localDayKey(d);
+    days.push({ key, label: dayLabel(key), incidents: map.get(key) ?? [] });
+  }
+  return days;
+});
+
 onMounted(() => { fetchAll(); interval = setInterval(fetchAll, 60_000); });
 onUnmounted(() => clearInterval(interval));
 </script>
@@ -56,7 +103,7 @@ onUnmounted(() => clearInterval(interval));
             <Server class="w-5 h-5 text-gray-500 dark:text-gray-400" :stroke-width="1.75" />
           </div>
           <div>
-            <h1 class="text-xl font-bold text-gray-900 dark:text-white">System Status</h1>
+            <h1 class="text-xl font-bold text-gray-900 dark:text-white">{{ data?.site_title ?? 'MOSSBoard' }}</h1>
             <p class="text-gray-400 dark:text-gray-600 text-xs mt-0.5">Auto-refreshes every 60 s</p>
           </div>
         </div>
@@ -106,9 +153,76 @@ onUnmounted(() => clearInterval(interval));
         <div v-for="i in 3" :key="i" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg h-32 animate-pulse" />
       </div>
 
+      <!-- Incident timeline -->
+      <div v-if="data?.show_incident_timeline" class="mt-10">
+
+        <!-- Section header -->
+        <div class="flex items-center gap-2 mb-5">
+          <AlertCircle class="w-4 h-4 text-gray-400 dark:text-gray-500" :stroke-width="1.75" />
+          <h2 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            Incident history · last {{ incidents.days }} day{{ incidents.days !== 1 ? 's' : '' }}
+          </h2>
+        </div>
+
+        <!-- Day rows -->
+        <div class="relative">
+          <!-- Vertical guide line -->
+          <div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-800" />
+
+          <div v-for="day in timelineDays" :key="day.key" class="mb-6 pl-7 relative">
+
+            <!-- Day dot -->
+            <div class="absolute left-0 top-1 w-[11px] h-[11px] rounded-full border-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-950" />
+
+            <!-- Day label -->
+            <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">{{ day.label }}</div>
+
+            <!-- Incidents -->
+            <div v-if="day.incidents.length" class="space-y-1.5">
+              <a
+                v-for="inc in day.incidents" :key="inc.id"
+                :href="inc.service_slug ? '/services/' + inc.service_slug : '#'"
+                class="flex items-center gap-3 px-3 py-2 rounded-lg bg-white dark:bg-gray-900 border transition-colors group"
+                :class="inc.resolved_at
+                  ? 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'
+                  : 'border-orange-400/40 hover:border-orange-400/60'"
+              >
+                <!-- Status dot -->
+                <span
+                  class="w-2 h-2 rounded-full shrink-0"
+                  :class="{
+                    'bg-yellow-400': incidentStatus(inc) === 'investigating',
+                    'bg-orange-500': incidentStatus(inc) === 'identified',
+                    'bg-blue-500':   incidentStatus(inc) === 'monitoring',
+                    'bg-green-500':  incidentStatus(inc) === 'resolved',
+                  }"
+                />
+
+                <!-- Title -->
+                <span class="text-sm text-gray-800 dark:text-gray-200 font-medium truncate flex-1 min-w-0">{{ inc.title }}</span>
+
+                <!-- Breadcrumb -->
+                <span class="text-xs text-gray-400 dark:text-gray-500 shrink-0 hidden sm:block">
+                  <template v-if="inc.section_name">{{ inc.section_name }} › </template>{{ inc.service_name }}
+                </span>
+
+                <!-- Status badge -->
+                <StatusBadge :status="incidentStatus(inc)" class="shrink-0" />
+
+                <!-- Arrow -->
+                <ArrowRight class="w-3.5 h-3.5 text-gray-300 dark:text-gray-700 group-hover:text-gray-400 dark:group-hover:text-gray-500 shrink-0 transition-colors" :stroke-width="1.75" />
+              </a>
+            </div>
+
+            <!-- Empty day -->
+            <p v-else class="text-xs text-gray-400 dark:text-gray-600 italic">No incidents on this day</p>
+          </div>
+        </div>
+      </div>
+
       <!-- Footer -->
       <div class="mt-10 flex items-center justify-between text-xs text-gray-400 dark:text-gray-600">
-        <span>© 2026 Maximilian Thoma</span>
+        <span>MOSSBoard by Maximilian Thoma 2026</span>
         <div class="flex items-center gap-4">
           <a href="/monitor" class="inline-flex items-center gap-1.5 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
             <Monitor class="w-3 h-3" :stroke-width="1.75" /> Monitor

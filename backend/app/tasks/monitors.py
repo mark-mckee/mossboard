@@ -280,16 +280,41 @@ _CHECKERS = {
 
 # ── Celery tasks ──────────────────────────────────────────────────────────────
 
-def _apply_service_status(service, new_status, monitor_name, error_note=""):
-    """Write status + snapshot to the linked service."""
+def _trigger_str(result):
+    """Build a concise human-readable string of the measured values that caused
+    the status change, for inclusion in the StatusSnapshot note."""
+    if not result:
+        return ""
+    parts = []
+    if result.get("status_code") is not None:
+        parts.append(f"HTTP {result['status_code']}")
+    if result.get("response_ms") is not None:
+        parts.append(f"{result['response_ms']} ms")
+    if result.get("packet_loss_percent") is not None:
+        parts.append(f"{result['packet_loss_percent']}% packet loss")
+    if result.get("body_regex_match") is False:
+        parts.append("body regex: no match")
+    if result.get("resolved_values"):
+        parts.append(f"resolved: {', '.join(result['resolved_values'])}")
+    if result.get("error"):
+        parts.append(result["error"])
+    return ", ".join(parts)
+
+
+def _apply_service_status(service, new_status, monitor_name, result=None):
+    """Write status + snapshot to the linked service.
+
+    The snapshot note contains the monitor name plus the measured trigger
+    values (response time, packet loss, HTTP code, etc.) so the status log
+    shows exactly what caused the status change.
+    """
     old_status = service.status
     service.status            = new_status
     service.updated_at        = datetime.utcnow()
     service.status_updated_at = datetime.utcnow()
     service.save()
-    note = f"[monitor:{monitor_name}]"
-    if error_note:
-        note += f" {error_note}"
+    trigger = _trigger_str(result)
+    note    = f"[monitor:{monitor_name}]" + (f" {trigger}" if trigger else "")
     StatusSnapshot(service=service, status=new_status, note=note.strip()).save()
     return f"{monitor_name}: {old_status} → {new_status}"
 
@@ -343,7 +368,7 @@ def run_single_monitor(monitor_id: str):
         elif monitor.confirm_seconds == 0:
             # Immediate mode: apply right away.
             action = _apply_service_status(
-                service, candidate, monitor.name, result.get("error", "")
+                service, candidate, monitor.name, result
             )
             monitor.pending_status = None
             monitor.pending_since = None
@@ -362,7 +387,7 @@ def run_single_monitor(monitor_id: str):
                 elapsed = (now - monitor.pending_since).total_seconds()
                 if elapsed >= monitor.confirm_seconds:
                     action = _apply_service_status(
-                        service, candidate, monitor.name, result.get("error", "")
+                        service, candidate, monitor.name, result
                     )
                     monitor.pending_status = None
                     monitor.pending_since = None

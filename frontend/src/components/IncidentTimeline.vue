@@ -26,18 +26,23 @@ function formatDate(iso) {
       :class="incident.resolved_at ? 'border-gray-200 dark:border-gray-800' : 'border-orange-400/40'"
     >
       <!-- Header -->
-      <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <component
-            :is="incident.resolved_at ? CheckCircle : AlertTriangle"
-            class="w-4 h-4 shrink-0"
-            :class="incident.resolved_at ? 'text-green-500' : 'text-orange-400'"
-            :stroke-width="1.75"
-          />
-          <span class="font-medium text-gray-900 dark:text-gray-200 text-sm">{{ incident.title }}</span>
+      <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-start justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <component
+              :is="incident.resolved_at ? CheckCircle : AlertTriangle"
+              class="w-4 h-4 shrink-0"
+              :class="incident.resolved_at ? 'text-green-500' : 'text-orange-400'"
+              :stroke-width="1.75"
+            />
+            <span class="font-medium text-gray-900 dark:text-gray-200 text-sm">{{ incident.title }}</span>
+          </div>
+          <div v-if="incident.section_name || incident.service_name" class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 ml-6">
+            <template v-if="incident.section_name">{{ incident.section_name }} › </template>{{ incident.service_name }}
+          </div>
         </div>
-        <span v-if="!incident.resolved_at" class="text-xs px-2 py-0.5 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30 shrink-0">Ongoing</span>
-        <span v-else class="text-xs text-gray-400 dark:text-gray-500 shrink-0">Resolved {{ formatDate(incident.resolved_at) }}</span>
+        <span v-if="!incident.resolved_at" class="text-xs px-2 py-0.5 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30 shrink-0 mt-0.5">Ongoing</span>
+        <span v-else class="text-xs text-gray-400 dark:text-gray-500 shrink-0 mt-0.5">Resolved {{ formatDate(incident.resolved_at) }}</span>
       </div>
 
       <!-- Updates -->

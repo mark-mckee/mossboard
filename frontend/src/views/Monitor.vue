@@ -84,7 +84,7 @@ document.addEventListener('fullscreenchange', () => {
     <header class="flex items-center justify-between px-8 py-4 border-b border-gray-800 shrink-0">
       <!-- Left: title + overall status -->
       <div class="flex items-center gap-4">
-        <h1 class="text-lg font-bold text-white tracking-wide">System Status</h1>
+        <h1 class="text-lg font-bold text-white tracking-wide">{{ data?.site_title ?? 'MOSSBoard' }}</h1>
         <div v-if="data" class="flex items-center gap-2 px-3 py-1 rounded-lg border text-xs font-semibold" :class="overallBanner.cls">
           <component :is="meta(data.overall_status).icon" class="w-3.5 h-3.5" :stroke-width="2" />
           {{ overallBanner.label }}
@@ -166,7 +166,7 @@ document.addEventListener('fullscreenchange', () => {
 
     <!-- Footer -->
     <footer class="px-8 py-3 border-t border-gray-800 flex items-center justify-between shrink-0">
-      <span class="text-xs text-gray-600">© 2026 Maximilian Thoma</span>
+      <span class="text-xs text-gray-600">MOSSBoard by Maximilian Thoma 2026</span>
       <div class="flex items-center gap-1.5 text-xs text-gray-700">
         <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
         Refreshes every 30 s
