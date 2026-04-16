@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { LayoutGrid, Layers, Server, Bell, Calendar, Key, Users, LogOut, ExternalLink, BookOpen, Activity, Settings } from 'lucide-vue-next';
+import { LayoutGrid, Layers, Server, Bell, Calendar, Key, Users, LogOut, ExternalLink, BookOpen, Activity, BarChart2, Settings } from 'lucide-vue-next';
 import ThemeToggle from '../../components/ThemeToggle.vue';
 
 const router = useRouter();
@@ -46,6 +46,7 @@ const nav = [
   { label: 'Incidents',   path: '/admin/incidents',   icon: Bell       },
   { label: 'Maintenance', path: '/admin/maintenance', icon: Calendar   },
   { label: 'Monitors',    path: '/admin/monitors',    icon: Activity   },
+  { label: 'Metrics',     path: '/admin/metrics',     icon: BarChart2  },
   { label: 'API Tokens',  path: '/admin/tokens',      icon: Key        },
   { label: 'Users',       path: '/admin/users',       icon: Users      },
   { label: 'Settings',    path: '/admin/settings',    icon: Settings   },

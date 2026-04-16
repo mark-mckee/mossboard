@@ -78,6 +78,7 @@ def get_status():
         "default_theme":           cfg.default_theme or "dark",
         "show_incident_timeline":  bool(cfg.show_incident_timeline),
         "incident_timeline_days":  cfg.incident_timeline_days or 7,
+        "wide_layout":             bool(cfg.wide_layout),
     }
 
 

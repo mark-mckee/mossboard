@@ -24,16 +24,18 @@ def create_app(config_name=None):
     init_celery(app)
 
     # CORS only for public endpoints
-    CORS(app, resources={r"/api/v1/status*": {"origins": "*"},
-                         r"/api/v1/services*": {"origins": "*"}})
+    CORS(app, resources={r"/api/v1/status*":   {"origins": "*"},
+                         r"/api/v1/services*": {"origins": "*"},
+                         r"/api/v1/metrics*":  {"origins": "*"}})
 
     # Register blueprints
-    from app.api import public_bp, admin_bp, token_bp, monitors_bp, settings_bp
+    from app.api import public_bp, admin_bp, token_bp, monitors_bp, settings_bp, metrics_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(token_bp)
     app.register_blueprint(monitors_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(metrics_bp)
 
     # Add Bearer token security scheme to OpenAPI spec
     @app.spec_processor

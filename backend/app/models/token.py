@@ -6,10 +6,11 @@ from mongoengine import (
 
 
 class APIToken(Document):
-    name = StringField(required=True)
-    token_hash = StringField(required=True, unique=True)
+    name         = StringField(required=True)
+    token_hash   = StringField(required=True, unique=True)
     token_prefix = StringField(required=True)
-    services = ListField(ReferenceField("Service"))
-    active = BooleanField(default=True)
-    created_at = DateTimeField(default=datetime.utcnow)
-    last_used = DateTimeField(null=True)
+    services     = ListField(ReferenceField("Service"))   # empty = all services
+    metrics      = ListField(ReferenceField("Metric"))    # empty = all metrics
+    active       = BooleanField(default=True)
+    created_at   = DateTimeField(default=datetime.utcnow)
+    last_used    = DateTimeField(null=True)

@@ -13,6 +13,7 @@ class SettingsPatchIn(Schema):
     default_theme          = fields.String(validate=validate.OneOf(THEME_CHOICES))
     show_incident_timeline = fields.Boolean()
     incident_timeline_days = fields.Integer(validate=validate.Range(min=1, max=90))
+    wide_layout            = fields.Boolean()
 
 
 def _require_auth():
@@ -27,6 +28,7 @@ def _serialize(s):
         "default_theme":          s.default_theme or "dark",
         "show_incident_timeline": bool(s.show_incident_timeline),
         "incident_timeline_days": s.incident_timeline_days or 7,
+        "wide_layout":            bool(s.wide_layout),
     }
 
 
@@ -46,5 +48,6 @@ def update_settings(json_data):
     if "default_theme"          in json_data: s.default_theme          = json_data["default_theme"]
     if "show_incident_timeline" in json_data: s.show_incident_timeline = json_data["show_incident_timeline"]
     if "incident_timeline_days" in json_data: s.incident_timeline_days = json_data["incident_timeline_days"]
+    if "wide_layout"            in json_data: s.wide_layout            = json_data["wide_layout"]
     s.save()
     return _serialize(s)

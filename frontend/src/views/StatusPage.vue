@@ -1,13 +1,18 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed }  from 'vue';
+import { useLayout } from '../composables/useLayout.js';
+const { isWide } = useLayout();
 import { CheckCircle, Clock, AlertTriangle, XCircle, Wrench, HelpCircle, Calendar, Server, Key, Monitor, AlertCircle, ArrowRight } from 'lucide-vue-next';
-import SectionCard from '../components/SectionCard.vue';
-import StatusBadge from '../components/StatusBadge.vue';
-import ThemeToggle from '../components/ThemeToggle.vue';
+import SectionCard  from '../components/SectionCard.vue';
+import StatusBadge  from '../components/StatusBadge.vue';
+import MetricChart  from '../components/MetricChart.vue';
+import ThemeToggle  from '../components/ThemeToggle.vue';
 
 const data        = ref(null);
 const maintenance = ref([]);
 const incidents   = ref({ open: [], resolved: [], resolved_total: 0, days: 7 });
+const metrics     = ref([]);
+const metricPts   = ref({});   // metric id → points array
 const error       = ref(null);
 let interval      = null;
 
@@ -20,9 +25,24 @@ async function fetchAll() {
     if (!sRes.ok) throw new Error('Failed to fetch status');
     data.value = await sRes.json();
     if (mRes.ok) maintenance.value = (await mRes.json()).maintenance;
-    const days = data.value?.incident_timeline_days ?? 7;
-    const iRes = await fetch(`/api/v1/incidents?days=${days}`);
-    if (iRes.ok) incidents.value = await iRes.json();
+
+    const [iRes, metricsRes] = await Promise.all([
+      fetch(`/api/v1/incidents?days=${data.value?.incident_timeline_days ?? 7}`),
+      fetch('/api/v1/metrics'),
+    ]);
+    if (iRes.ok)       incidents.value = await iRes.json();
+    if (metricsRes.ok) {
+      metrics.value = (await metricsRes.json()).metrics;
+      // Fetch chart points for metrics that have display_chart enabled
+      await Promise.all(
+        metrics.value
+          .filter(m => m.display_chart)
+          .map(async m => {
+            const r = await fetch(`/api/v1/metrics/${m.id}/points?view=${m.default_view}`);
+            if (r.ok) metricPts.value[m.id] = (await r.json()).points;
+          })
+      );
+    }
   } catch (e) { error.value = e.message; }
 }
 
@@ -69,6 +89,19 @@ function incidentStatus(inc) {
   return 'investigating';
 }
 
+const VIEW_LABELS = { last_hour: 'Last Hour', today: 'Today', week: 'Last 7 Days', month: 'Last 30 Days' };
+
+function metricViewLabel(m) {
+  if (m.metric_type === 'last') return 'Latest value';
+  return VIEW_LABELS[m.default_view] ?? m.default_view;
+}
+
+function fmtMetric(m) {
+  if (m.current_value == null) return '—';
+  const val = Number(m.current_value).toFixed(m.places);
+  return m.suffix ? `${val} ${m.suffix}` : val;
+}
+
 // All N calendar days newest-first, each with its list of incidents (may be empty)
 const timelineDays = computed(() => {
   const n   = data.value?.incident_timeline_days ?? 7;
@@ -94,7 +127,7 @@ onUnmounted(() => clearInterval(interval));
 
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
-    <div class="max-w-4xl mx-auto px-4 py-10">
+    <div class="mx-auto px-4 py-10" :class="isWide ? 'max-w-6xl' : 'max-w-4xl'">
 
       <!-- Header -->
       <div class="mb-8 flex items-start justify-between">
@@ -151,6 +184,36 @@ onUnmounted(() => clearInterval(interval));
       </div>
       <div v-else-if="!error" class="space-y-4">
         <div v-for="i in 3" :key="i" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg h-32 animate-pulse" />
+      </div>
+
+      <!-- Metrics -->
+      <div v-if="metrics.length" class="mt-6 space-y-3">
+        <div
+          v-for="m in metrics" :key="m.id"
+          class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm dark:shadow-none overflow-hidden"
+        >
+          <!-- Header row -->
+          <div class="px-5 pt-4 pb-3 flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ m.name }}</span>
+                <span class="text-xs text-gray-400 dark:text-gray-500">{{ m.service_name }}</span>
+              </div>
+              <p v-if="m.description" class="text-xs text-gray-400 dark:text-gray-600 mt-0.5 truncate">{{ m.description }}</p>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-2xl font-bold text-gray-900 dark:text-white tabular-nums leading-tight">{{ fmtMetric(m) }}</div>
+              <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">{{ metricViewLabel(m) }}</div>
+            </div>
+          </div>
+          <!-- Sparkline -->
+          <MetricChart
+            v-if="m.display_chart"
+            :points="metricPts[m.id] ?? []"
+            :height="64"
+            class="px-0"
+          />
+        </div>
       </div>
 
       <!-- Incident timeline -->

@@ -12,6 +12,7 @@ class Settings(Document):
     default_theme           = StringField(choices=THEME_CHOICES, default="dark")
     show_incident_timeline  = BooleanField(default=False)
     incident_timeline_days  = IntField(default=7)
+    wide_layout             = BooleanField(default=False)
 
     meta = {"collection": "settings"}
 
@@ -25,6 +26,7 @@ class Settings(Document):
                 default_theme="dark",
                 show_incident_timeline=False,
                 incident_timeline_days=7,
+                wide_layout=False,
             )
             obj.save()
         return obj

@@ -5,7 +5,7 @@ from marshmallow import Schema, fields, validate
 from slugify import slugify
 
 import bcrypt as _bcrypt
-from app.models import Section, Service, Incident, IncidentUpdate, APIToken, ScheduledMaintenance, User, StatusSnapshot
+from app.models import Section, Service, Incident, IncidentUpdate, APIToken, ScheduledMaintenance, User, StatusSnapshot, Metric
 from app.api.public import serialize_incident
 
 admin_bp = APIBlueprint("admin", __name__, url_prefix="/api/v1/admin")
@@ -80,6 +80,8 @@ class TokenIn(Schema):
     name        = fields.String(required=True)
     service_ids = fields.List(fields.String(), load_default=[],
                               metadata={"description": "Service IDs to authorize; empty = all services"})
+    metric_ids  = fields.List(fields.String(), load_default=[],
+                              metadata={"description": "Metric IDs to authorize; empty = all metrics"})
 
 class TokenPatchIn(Schema):
     active = fields.Boolean(required=True)
@@ -318,10 +320,13 @@ def create_token(json_data):
     token_prefix = raw_token[:8]
     token_hash   = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
     services = [s for s in (Service.objects(id=sid).first() for sid in json_data["service_ids"]) if s]
-    token = APIToken(name=name, token_hash=token_hash, token_prefix=token_prefix, services=services).save()
+    metrics  = [m for m in (Metric.objects(id=mid).first()  for mid in json_data["metric_ids"])  if m]
+    token = APIToken(name=name, token_hash=token_hash, token_prefix=token_prefix,
+                     services=services, metrics=metrics).save()
     return {"id": str(token.id), "name": token.name, "token": raw_token,
             "token_prefix": token.token_prefix,
             "service_ids": [str(s.id) for s in token.services],
+            "metric_ids":  [str(m.id) for m in token.metrics],
             "active": token.active,
             "created_at": token.created_at.isoformat() + "Z"}, 201
 
@@ -451,9 +456,13 @@ def _ser_token(t):
             if svc.section: sec_name = svc.section.name
         except Exception: pass
         return {"id": str(svc.id), "name": svc.name, "section_name": sec_name}
+    def _met_info(m):
+        return {"id": str(m.id), "name": m.name, "service_name": m.service.name if m.service else None}
     return {"id": str(t.id), "name": t.name, "token_prefix": t.token_prefix,
-            "service_ids": [str(s.id) for s in t.services],
+            "service_ids":   [str(s.id) for s in t.services],
             "services_info": [_svc_info(s) for s in t.services],
+            "metric_ids":    [str(m.id) for m in t.metrics],
+            "metrics_info":  [_met_info(m) for m in t.metrics],
             "active": t.active, "created_at": t.created_at.isoformat() + "Z",
             "last_used": t.last_used.isoformat() + "Z" if t.last_used else None}
 

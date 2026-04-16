@@ -6,6 +6,7 @@ const siteTitle            = ref('MOSSBoard');
 const defaultTheme         = ref('dark');
 const showIncidentTimeline = ref(false);
 const incidentTimelineDays = ref(7);
+const wideLayout           = ref(false);
 const saved                = ref(false);
 const loading              = ref(true);
 
@@ -41,6 +42,7 @@ async function fetchSettings() {
     defaultTheme.value         = data.default_theme ?? 'dark';
     showIncidentTimeline.value = data.show_incident_timeline ?? false;
     incidentTimelineDays.value = data.incident_timeline_days ?? 7;
+    wideLayout.value           = data.wide_layout ?? false;
   }
   loading.value = false;
 }
@@ -55,6 +57,7 @@ async function save() {
       default_theme:          defaultTheme.value,
       show_incident_timeline: showIncidentTimeline.value,
       incident_timeline_days: incidentTimelineDays.value,
+      wide_layout:            wideLayout.value,
     }),
   });
   if (res.ok) {
@@ -105,6 +108,25 @@ onMounted(fetchSettings);
           >
             <input type="radio" :value="opt.value" v-model="defaultTheme" class="accent-gray-700 dark:accent-gray-400" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ opt.label }}</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Wide layout -->
+      <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm dark:shadow-none">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">Wide layout</h2>
+            <p class="text-xs text-gray-400 dark:text-gray-600">
+              Expand the public status page and service detail pages from 896 px to 1152 px. Useful for boards with many services or wide metric charts.
+            </p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+            <input type="checkbox" v-model="wideLayout" class="sr-only peer" />
+            <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-checked:bg-gray-700 dark:peer-checked:bg-gray-400 rounded-full transition-colors
+                        after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4
+                        after:rounded-full after:bg-white after:transition-transform
+                        peer-checked:after:translate-x-4" />
           </label>
         </div>
       </div>

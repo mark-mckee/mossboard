@@ -1,8 +1,10 @@
 <script setup>
 import { onMounted } from 'vue';
-import { useTheme } from './composables/useTheme.js';
+import { useTheme }  from './composables/useTheme.js';
+import { useLayout } from './composables/useLayout.js';
 
 const { setDefault } = useTheme();
+const { setWide }    = useLayout();
 
 onMounted(async () => {
   try {
@@ -10,9 +12,10 @@ onMounted(async () => {
     if (res.ok) {
       const data = await res.json();
       if (data.default_theme) setDefault(data.default_theme);
+      setWide(data.wide_layout ?? false);
     }
   } catch {
-    // network error — keep current theme
+    // network error — keep defaults
   }
 });
 </script>

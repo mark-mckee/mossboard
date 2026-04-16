@@ -2,10 +2,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ArrowLeft, History, Clock, ChevronRight, BarChart2 } from 'lucide-vue-next';
-import StatusBadge from '../components/StatusBadge.vue';
-import StatusBar from '../components/StatusBar.vue';
+import StatusBadge  from '../components/StatusBadge.vue';
+import StatusBar    from '../components/StatusBar.vue';
+import MetricChart  from '../components/MetricChart.vue';
 import IncidentTimeline from '../components/IncidentTimeline.vue';
-import ThemeToggle from '../components/ThemeToggle.vue';
+import ThemeToggle  from '../components/ThemeToggle.vue';
+import { useLayout } from '../composables/useLayout.js';
+const { isWide } = useLayout();
 
 const route  = useRoute();
 const router = useRouter();
@@ -21,6 +24,8 @@ const statusLogTotal    = ref(0);
 const logExpanded       = ref(false);
 const uptime            = ref(null);
 const uptime12          = ref(null);
+const metrics           = ref([]);
+const metricPts         = ref({});
 const error             = ref(null);
 
 const LOG_PREVIEW = 10;
@@ -50,6 +55,20 @@ async function fetchData() {
     if (uptimeRes.ok) uptime.value = await uptimeRes.json();
     if (uptime12Res.ok) uptime12.value = await uptime12Res.json();
     resolvedTotal.value = incData.resolved_total ?? incData.resolved.length;
+
+    // Metrics for this service
+    const mRes = await fetch(`/api/v1/metrics?service_slug=${slug}`);
+    if (mRes.ok) {
+      metrics.value = (await mRes.json()).metrics;
+      await Promise.all(
+        metrics.value
+          .filter(m => m.display_chart)
+          .map(async m => {
+            const r = await fetch(`/api/v1/metrics/${m.id}/points?view=${m.default_view}`);
+            if (r.ok) metricPts.value[m.id] = (await r.json()).points;
+          })
+      );
+    }
   } catch (e) { error.value = e.message; }
 }
 
@@ -69,6 +88,17 @@ function formatDay(dateStr) {
 
 function formatMonth(m) {
   return new Date(m.year, m.month - 1, 1).toLocaleDateString([], { month: 'short', year: '2-digit' });
+}
+
+const VIEW_LABELS = { last_hour: 'Last Hour', today: 'Today', week: 'Last 7 Days', month: 'Last 30 Days' };
+function fmtMetric(m) {
+  if (m.current_value == null) return '—';
+  const val = Number(m.current_value).toFixed(m.places);
+  return m.suffix ? `${val} ${m.suffix}` : val;
+}
+function metricViewLabel(m) {
+  if (m.metric_type === 'last') return 'Latest value';
+  return VIEW_LABELS[m.default_view] ?? m.default_view;
 }
 
 const statusDotClass = {
@@ -97,7 +127,7 @@ onMounted(fetchData);
 
 <template>
   <div class="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
-    <div class="max-w-4xl mx-auto px-4 py-10">
+    <div class="mx-auto px-4 py-10" :class="isWide ? 'max-w-6xl' : 'max-w-4xl'">
 
       <!-- Top bar -->
       <div class="flex items-center justify-between mb-6">
@@ -187,6 +217,26 @@ onMounted(fetchData);
           <div class="flex justify-between text-xs text-gray-400 dark:text-gray-600 mt-1.5">
             <span>{{ formatMonth(uptime12.months[0]) }}</span>
             <span>{{ formatMonth(uptime12.months[uptime12.months.length - 1]) }}</span>
+          </div>
+        </div>
+
+        <!-- Metrics -->
+        <div v-if="metrics.length" class="space-y-3 mb-6">
+          <div
+            v-for="m in metrics" :key="m.id"
+            class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm dark:shadow-none overflow-hidden"
+          >
+            <div class="px-4 pt-4 pb-3 flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ m.name }}</div>
+                <p v-if="m.description" class="text-xs text-gray-400 dark:text-gray-600 mt-0.5 truncate">{{ m.description }}</p>
+              </div>
+              <div class="text-right shrink-0">
+                <div class="text-2xl font-bold text-gray-900 dark:text-white tabular-nums leading-tight">{{ fmtMetric(m) }}</div>
+                <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">{{ metricViewLabel(m) }}</div>
+              </div>
+            </div>
+            <MetricChart v-if="m.display_chart" :points="metricPts[m.id] ?? []" :height="56" />
           </div>
         </div>
 
