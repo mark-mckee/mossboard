@@ -31,11 +31,60 @@ const TYPE_INFO = {
 
 const DNS_RECORD_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'PTR'];
 
-function emptyForm() {
+// Sensible default threshold rules per monitor type.
+// Sorted ascending so the first match wins — same as the backend resolver.
+const DEFAULT_THRESHOLDS = {
+  http: {
+    response_time_thresholds: [
+      { max_ms: 300,  status: 'operational'        },
+      { max_ms: 1000, status: 'performance_issues' },
+      { max_ms: 2000, status: 'partial_outage'     },
+    ],
+    packet_loss_thresholds: [],
+  },
+  tcp: {
+    response_time_thresholds: [
+      { max_ms: 150, status: 'operational'        },
+      { max_ms: 300, status: 'performance_issues' },
+      { max_ms: 800, status: 'partial_outage'     },
+    ],
+    packet_loss_thresholds: [],
+  },
+  icmp: {
+    response_time_thresholds: [
+      { max_ms: 50,  status: 'operational'        },
+      { max_ms: 150, status: 'performance_issues' },
+      { max_ms: 300, status: 'partial_outage'     },
+    ],
+    packet_loss_thresholds: [
+      { max_percent: 0,  status: 'operational'        },
+      { max_percent: 10, status: 'performance_issues' },
+      { max_percent: 50, status: 'partial_outage'     },
+    ],
+  },
+  dns: {
+    response_time_thresholds: [
+      { max_ms: 100, status: 'operational'        },
+      { max_ms: 500, status: 'performance_issues' },
+      { max_ms: 1000, status: 'partial_outage'    },
+    ],
+    packet_loss_thresholds: [],
+  },
+};
+
+function defaultThresholds(type) {
+  const d = DEFAULT_THRESHOLDS[type] || DEFAULT_THRESHOLDS.http;
+  return {
+    response_time_thresholds: d.response_time_thresholds.map(t => ({ ...t })),
+    packet_loss_thresholds:   d.packet_loss_thresholds.map(t => ({ ...t })),
+  };
+}
+
+function emptyForm(type = 'http') {
   return {
     name: '',
     service_id: services.value[0]?.id || '',
-    type: 'http',
+    type,
     url: '',
     host: '',
     port: null,
@@ -51,10 +100,18 @@ function emptyForm() {
     timeout_seconds: 10,
     confirm_seconds: 0,
     active: true,
-    // threshold arrays — each item: { max_ms/max_percent, status }
-    response_time_thresholds: [],
-    packet_loss_thresholds: [],
+    ...defaultThresholds(type),
   };
+}
+
+// When the type pill is clicked in the create form, also reset thresholds to
+// the defaults for the new type. In edit mode we leave existing thresholds
+// intact so the user doesn't accidentally lose their configuration.
+function setType(key) {
+  form.value.type = key;
+  if (!editId.value) {
+    Object.assign(form.value, defaultThresholds(key));
+  }
 }
 
 const form = ref(emptyForm());
@@ -241,7 +298,7 @@ onMounted(fetchAll);
         <label class="block text-xs text-gray-500 dark:text-gray-400 mb-2">Check Type</label>
         <div class="flex gap-2">
           <button v-for="(info, key) in TYPE_INFO" :key="key" type="button"
-            @click="form.type = key"
+            @click="setType(key)"
             class="flex items-center gap-2 px-4 py-2 rounded-lg border text-xs font-medium transition-all"
             :class="form.type === key
               ? 'border-gray-400 dark:border-gray-500 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
