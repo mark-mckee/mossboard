@@ -90,6 +90,7 @@ function emptyForm(type = 'http') {
     port: null,
     proxy_host: '',
     proxy_port: null,
+    verify_ssl: true,
     body_regex: '',
     expected_status_codes: [200],
     dns_record_type: 'A',
@@ -157,6 +158,7 @@ function startEdit(m) {
     port: m.port || null,
     proxy_host: m.proxy_host || '',
     proxy_port: m.proxy_port || null,
+    verify_ssl: m.verify_ssl ?? true,
     body_regex: m.body_regex || '',
     expected_status_codes: [...(m.expected_status_codes || [200])],
     dns_record_type: m.dns_record_type || 'A',
@@ -201,6 +203,7 @@ async function submitForm() {
     port: form.value.port || null,
     proxy_host: form.value.proxy_host,
     proxy_port: form.value.proxy_port || null,
+    verify_ssl: form.value.verify_ssl,
     body_regex: form.value.body_regex,
     expected_status_codes: form.value.expected_status_codes,
     dns_record_type: form.value.dns_record_type,
@@ -328,6 +331,13 @@ onMounted(fetchAll);
               :disabled="!form.proxy_host" />
           </div>
         </div>
+        <label class="flex items-center gap-2.5 cursor-pointer select-none">
+          <input v-model="form.verify_ssl" type="checkbox" class="rounded accent-gray-700 dark:accent-gray-400" />
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            Verify SSL certificate
+            <span class="text-gray-300 dark:text-gray-600">(uncheck to accept self-signed or invalid certificates)</span>
+          </span>
+        </label>
       </template>
 
       <!-- Target: TCP -->
@@ -565,7 +575,11 @@ onMounted(fetchAll);
 
             <!-- Target -->
             <div class="text-xs text-gray-400 dark:text-gray-600 mb-1.5">
-              <span v-if="m.type === 'http'">{{ m.url }}<span v-if="m.proxy_host" class="text-gray-300 dark:text-gray-700"> via {{ m.proxy_host }}:{{ m.proxy_port }}</span></span>
+              <span v-if="m.type === 'http'">
+                {{ m.url }}
+                <span v-if="m.proxy_host" class="text-gray-300 dark:text-gray-700"> via {{ m.proxy_host }}:{{ m.proxy_port }}</span>
+                <span v-if="m.verify_ssl === false" class="ml-1 text-yellow-500 dark:text-yellow-400">SSL unverified</span>
+              </span>
               <span v-else-if="m.type === 'tcp'">{{ m.host }}:{{ m.port }}</span>
               <span v-else-if="m.type === 'dns'">
                 {{ m.dns_record_type }} {{ m.host }}

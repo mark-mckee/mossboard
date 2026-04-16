@@ -41,9 +41,10 @@ class Monitor(Document):
     host = StringField(default="")
     port = IntField()
 
-    # --- HTTP proxy (optional) ---
+    # --- HTTP options ---
     proxy_host = StringField(default="")   # proxy hostname or IP; empty = no proxy
     proxy_port = IntField(null=True)        # proxy port (required when proxy_host is set)
+    verify_ssl = BooleanField(default=True) # False = accept invalid/self-signed certificates
 
     # --- DNS-specific ---
     dns_record_type    = StringField(choices=DNS_RECORD_TYPES, default="A")

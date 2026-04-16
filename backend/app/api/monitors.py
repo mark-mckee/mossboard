@@ -36,9 +36,10 @@ class MonitorIn(Schema):
     # thresholds
     response_time_thresholds = fields.List(fields.Nested(ResponseTimeThresholdSchema), load_default=[])
     packet_loss_thresholds   = fields.List(fields.Nested(PacketLossThresholdSchema), load_default=[])
-    # HTTP proxy (optional)
+    # HTTP options
     proxy_host              = fields.String(load_default="")
     proxy_port              = fields.Integer(load_default=None, allow_none=True)
+    verify_ssl              = fields.Boolean(load_default=True)
     # HTTP extras
     expected_status_codes   = fields.List(fields.Integer(), load_default=[200])
     body_regex              = fields.String(load_default="")
@@ -64,6 +65,7 @@ class MonitorPatchIn(Schema):
     port                    = fields.Integer(allow_none=True)
     proxy_host              = fields.String()
     proxy_port              = fields.Integer(allow_none=True)
+    verify_ssl              = fields.Boolean()
     response_time_thresholds = fields.List(fields.Nested(ResponseTimeThresholdSchema))
     packet_loss_thresholds   = fields.List(fields.Nested(PacketLossThresholdSchema))
     expected_status_codes   = fields.List(fields.Integer())
@@ -123,6 +125,7 @@ def _ser_monitor(m):
         "port": m.port,
         "proxy_host": m.proxy_host or "",
         "proxy_port": m.proxy_port,
+        "verify_ssl": m.verify_ssl if m.verify_ssl is not None else True,
         "dns_record_type": m.dns_record_type or "A",
         "dns_server": m.dns_server or "",
         "dns_expected_values": list(m.dns_expected_values or []),
@@ -175,6 +178,7 @@ def create_monitor(json_data):
         port=json_data.get("port"),
         proxy_host=json_data["proxy_host"],
         proxy_port=json_data.get("proxy_port"),
+        verify_ssl=json_data["verify_ssl"],
         expected_status_codes=json_data["expected_status_codes"],
         body_regex=json_data["body_regex"],
         dns_record_type=json_data["dns_record_type"],
@@ -211,6 +215,7 @@ def update_monitor(monitor_id, json_data):
     if "port"                  in json_data: monitor.port                  = json_data["port"]
     if "proxy_host"            in json_data: monitor.proxy_host            = json_data["proxy_host"]
     if "proxy_port"            in json_data: monitor.proxy_port            = json_data["proxy_port"]
+    if "verify_ssl"            in json_data: monitor.verify_ssl            = json_data["verify_ssl"]
     if "expected_status_codes" in json_data: monitor.expected_status_codes = json_data["expected_status_codes"]
     if "body_regex"            in json_data: monitor.body_regex            = json_data["body_regex"]
     if "dns_record_type"       in json_data: monitor.dns_record_type       = json_data["dns_record_type"]

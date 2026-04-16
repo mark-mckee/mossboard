@@ -80,6 +80,7 @@ def _check_http(monitor):
             timeout=monitor.timeout_seconds,
             allow_redirects=True,
             proxies=proxies,
+            verify=monitor.verify_ssl,
         )
         response_ms = (time.time() - t0) * 1000
         result["response_ms"] = round(response_ms, 2)
