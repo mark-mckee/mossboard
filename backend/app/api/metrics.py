@@ -234,6 +234,10 @@ def push_metric_point(metric_id, json_data):
     tok = _token_auth()
     m   = _get_or_404(Metric.objects(id=metric_id))
 
+    # Master switch: token must explicitly allow metric pushes
+    if tok.allow_metric_pushes is False:
+        abort(403)
+
     # Service-scoped token: verify metric's service is in the allowed list
     if tok.services and m.service not in tok.services:
         abort(403)

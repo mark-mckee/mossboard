@@ -52,6 +52,11 @@ def _apply_status_update(service, json_data, raw_token):
     if not matched_token:
         abort(401)
 
+    # Master switch: token must explicitly allow service status updates
+    if matched_token.allow_service_updates is False:
+        abort(403)
+
+    # Service scope: if a specific list is set, the service must be in it
     if matched_token.services:
         service_ids = [str(s.id) for s in matched_token.services]
         if str(service.id) not in service_ids:

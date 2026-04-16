@@ -77,11 +77,13 @@ class MaintenanceIn(Schema):
     auto_status = fields.Boolean(load_default=False, metadata={"description": "Auto-set service to under_maintenance during window"})
 
 class TokenIn(Schema):
-    name        = fields.String(required=True)
-    service_ids = fields.List(fields.String(), load_default=[],
-                              metadata={"description": "Service IDs to authorize; empty = all services"})
-    metric_ids  = fields.List(fields.String(), load_default=[],
-                              metadata={"description": "Metric IDs to authorize; empty = all metrics"})
+    name                  = fields.String(required=True)
+    allow_service_updates = fields.Boolean(load_default=True)
+    service_ids           = fields.List(fields.String(), load_default=[],
+                                        metadata={"description": "Service IDs; empty = all (when allow_service_updates is true)"})
+    allow_metric_pushes   = fields.Boolean(load_default=True)
+    metric_ids            = fields.List(fields.String(), load_default=[],
+                                        metadata={"description": "Metric IDs; empty = all (when allow_metric_pushes is true)"})
 
 class TokenPatchIn(Schema):
     active = fields.Boolean(required=True)
@@ -321,11 +323,18 @@ def create_token(json_data):
     token_hash   = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
     services = [s for s in (Service.objects(id=sid).first() for sid in json_data["service_ids"]) if s]
     metrics  = [m for m in (Metric.objects(id=mid).first()  for mid in json_data["metric_ids"])  if m]
-    token = APIToken(name=name, token_hash=token_hash, token_prefix=token_prefix,
-                     services=services, metrics=metrics).save()
+    token = APIToken(
+        name=name, token_hash=token_hash, token_prefix=token_prefix,
+        allow_service_updates=json_data["allow_service_updates"],
+        services=services,
+        allow_metric_pushes=json_data["allow_metric_pushes"],
+        metrics=metrics,
+    ).save()
     return {"id": str(token.id), "name": token.name, "token": raw_token,
             "token_prefix": token.token_prefix,
+            "allow_service_updates": token.allow_service_updates,
             "service_ids": [str(s.id) for s in token.services],
+            "allow_metric_pushes": token.allow_metric_pushes,
             "metric_ids":  [str(m.id) for m in token.metrics],
             "active": token.active,
             "created_at": token.created_at.isoformat() + "Z"}, 201
@@ -459,8 +468,10 @@ def _ser_token(t):
     def _met_info(m):
         return {"id": str(m.id), "name": m.name, "service_name": m.service.name if m.service else None}
     return {"id": str(t.id), "name": t.name, "token_prefix": t.token_prefix,
+            "allow_service_updates": bool(t.allow_service_updates if t.allow_service_updates is not None else True),
             "service_ids":   [str(s.id) for s in t.services],
             "services_info": [_svc_info(s) for s in t.services],
+            "allow_metric_pushes": bool(t.allow_metric_pushes if t.allow_metric_pushes is not None else True),
             "metric_ids":    [str(m.id) for m in t.metrics],
             "metrics_info":  [_met_info(m) for m in t.metrics],
             "active": t.active, "created_at": t.created_at.isoformat() + "Z",
