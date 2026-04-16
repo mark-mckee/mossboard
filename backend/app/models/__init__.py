@@ -5,5 +5,6 @@ from .token import APIToken
 from .maintenance import ScheduledMaintenance
 from .user import User
 from .monitor import Monitor
+from .settings import Settings
 
-__all__ = ["Section", "Service", "StatusSnapshot", "Incident", "IncidentUpdate", "APIToken", "ScheduledMaintenance", "User", "Monitor"]
+__all__ = ["Section", "Service", "StatusSnapshot", "Incident", "IncidentUpdate", "APIToken", "ScheduledMaintenance", "User", "Monitor", "Settings"]

@@ -45,6 +45,6 @@ class StatusSnapshot(Document):
     meta = {
         "indexes": [
             {"fields": ["service", "-recorded_at"]},
-            {"fields": ["recorded_at"], "expireAfterSeconds": 86400 * 30},
+            {"fields": ["recorded_at"], "expireAfterSeconds": 86400 * 366},  # TTL ~12 months
         ]
     }

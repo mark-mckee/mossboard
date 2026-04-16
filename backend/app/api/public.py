@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from apiflask import APIBlueprint
 from app.models import Section, Service, StatusSnapshot, Incident, ScheduledMaintenance
+from app.models.settings import Settings
 
 public_bp = APIBlueprint("public", __name__, url_prefix="/api/v1")
 
@@ -138,9 +139,33 @@ def get_service_log(slug):
     return {"log": all_periods[:100], "total": len(all_periods), "service": serialize_service(service)}
 
 
+def _uptime_pct_from_buckets(buckets, behavior):
+    """Compute uptime % from pre-built day/month buckets respecting no_data_behavior."""
+    if not buckets:
+        return None
+    if behavior == "exclude":
+        relevant = [b for b in buckets if b["has_data"]]
+        if not relevant:
+            return None
+        operational = sum(1 for b in relevant if b["status"] == "operational")
+        return round(operational / len(relevant) * 100, 1)
+    # "unknown" or "operational": all buckets count
+    operational = sum(1 for b in buckets if b["status"] == "operational")
+    return round(operational / len(buckets) * 100, 1)
+
+
+def _apply_no_data_behavior(buckets, behavior):
+    """Adjust bucket statuses in-place according to no_data_behavior setting."""
+    for b in buckets:
+        if not b["has_data"] and behavior == "operational":
+            b["status"] = "operational"
+    return buckets
+
+
 @public_bp.get("/services/<slug>/uptime")
 def get_service_uptime(slug):
-    service = _get_or_404(Service.objects(slug=slug))
+    service  = _get_or_404(Service.objects(slug=slug))
+    behavior = Settings.get_or_create().no_data_behavior
     now = datetime.utcnow()
     days = []
     for i in range(29, -1, -1):
@@ -154,12 +179,50 @@ def get_service_uptime(slug):
             "has_data": len(statuses) > 0,
         })
 
-    snaps_30d   = list(StatusSnapshot.objects(service=service, recorded_at__gte=now - timedelta(days=30)))
-    total       = len(snaps_30d)
-    operational = sum(1 for s in snaps_30d if s.status == "operational")
-    uptime_pct  = round(operational / total * 100, 1) if total > 0 else None
-
+    _apply_no_data_behavior(days, behavior)
+    uptime_pct = _uptime_pct_from_buckets(days, behavior)
     return {"days": days, "uptime_pct": uptime_pct}
+
+
+def _month_boundaries(year, month):
+    """Return (start, end) naive UTC datetimes for the given calendar month."""
+    start = datetime(year, month, 1)
+    if month == 12:
+        end = datetime(year + 1, 1, 1)
+    else:
+        end = datetime(year, month + 1, 1)
+    return start, end
+
+
+@public_bp.get("/services/<slug>/uptime12")
+def get_service_uptime12(slug):
+    """12-month monthly uptime summary."""
+    service  = _get_or_404(Service.objects(slug=slug))
+    behavior = Settings.get_or_create().no_data_behavior
+    now = datetime.utcnow()
+    cur_year, cur_month = now.year, now.month
+
+    months = []
+    for i in range(11, -1, -1):
+        m = cur_month - i
+        y = cur_year
+        if m <= 0:
+            m += 12
+            y -= 1
+        start, end = _month_boundaries(y, m)
+        snaps = StatusSnapshot.objects(service=service, recorded_at__gte=start, recorded_at__lt=end)
+        statuses = [sn.status for sn in snaps]
+        months.append({
+            "year": y,
+            "month": m,
+            "date": f"{y}-{m:02d}",
+            "status": worst_status(statuses),
+            "has_data": len(statuses) > 0,
+        })
+
+    _apply_no_data_behavior(months, behavior)
+    uptime_pct = _uptime_pct_from_buckets(months, behavior)
+    return {"months": months, "uptime_pct": uptime_pct}
 
 
 @public_bp.get("/maintenance")

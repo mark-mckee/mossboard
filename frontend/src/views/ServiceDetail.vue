@@ -20,6 +20,7 @@ const statusLog         = ref([]);
 const statusLogTotal    = ref(0);
 const logExpanded       = ref(false);
 const uptime            = ref(null);
+const uptime12          = ref(null);
 const error             = ref(null);
 
 const LOG_PREVIEW = 10;
@@ -27,11 +28,12 @@ const visibleLog  = computed(() => logExpanded.value ? statusLog.value : statusL
 
 async function fetchData() {
   try {
-    const [histRes, incRes, logRes, uptimeRes] = await Promise.all([
+    const [histRes, incRes, logRes, uptimeRes, uptime12Res] = await Promise.all([
       fetch(`/api/v1/services/${slug}/history`),
       fetch(`/api/v1/services/${slug}/incidents`),
       fetch(`/api/v1/services/${slug}/log`),
       fetch(`/api/v1/services/${slug}/uptime`),
+      fetch(`/api/v1/services/${slug}/uptime12`),
     ]);
     if (!histRes.ok) throw new Error('Not found');
     const histData = await histRes.json();
@@ -46,6 +48,7 @@ async function fetchData() {
       statusLogTotal.value = logData.total;
     }
     if (uptimeRes.ok) uptime.value = await uptimeRes.json();
+    if (uptime12Res.ok) uptime12.value = await uptime12Res.json();
     resolvedTotal.value = incData.resolved_total ?? incData.resolved.length;
   } catch (e) { error.value = e.message; }
 }
@@ -62,6 +65,10 @@ function formatDate(iso) {
 
 function formatDay(dateStr) {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatMonth(m) {
+  return new Date(m.year, m.month - 1, 1).toLocaleDateString([], { month: 'short', year: '2-digit' });
 }
 
 const statusDotClass = {
@@ -154,6 +161,32 @@ onMounted(fetchData);
           <div class="flex justify-between text-xs text-gray-400 dark:text-gray-600 mt-1.5">
             <span>{{ formatDay(uptime.days[0]?.date) }}</span>
             <span>Today</span>
+          </div>
+        </div>
+
+        <!-- 12-month uptime summary -->
+        <div v-if="uptime12" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 mb-6 shadow-sm dark:shadow-none">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <BarChart2 class="w-4 h-4 text-gray-400 dark:text-gray-500" :stroke-width="1.75" />
+              <h2 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">12-Month Summary</h2>
+            </div>
+            <span v-if="uptime12.uptime_pct !== null" class="text-xs font-semibold"
+              :class="uptime12.uptime_pct >= 99 ? 'text-green-500' : uptime12.uptime_pct >= 95 ? 'text-yellow-500' : 'text-red-500'">
+              {{ uptime12.uptime_pct }}% uptime
+            </span>
+          </div>
+          <div class="flex gap-1 h-8 rounded overflow-hidden">
+            <div
+              v-for="m in uptime12.months" :key="m.date"
+              class="flex-1 cursor-default transition-opacity hover:opacity-75 rounded-sm"
+              :class="m.has_data ? (dayColorClass[m.status] || 'bg-gray-200 dark:bg-gray-700') : 'bg-gray-100 dark:bg-gray-800'"
+              :title="`${formatMonth(m)}: ${m.has_data ? (statusLabel[m.status] || m.status) : 'No data'}`"
+            />
+          </div>
+          <div class="flex justify-between text-xs text-gray-400 dark:text-gray-600 mt-1.5">
+            <span>{{ formatMonth(uptime12.months[0]) }}</span>
+            <span>{{ formatMonth(uptime12.months[uptime12.months.length - 1]) }}</span>
           </div>
         </div>
 

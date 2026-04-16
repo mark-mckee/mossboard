@@ -39,6 +39,9 @@ function emptyForm() {
     url: '',
     host: '',
     port: null,
+    proxy_host: '',
+    proxy_port: null,
+    body_regex: '',
     expected_status_codes: [200],
     dns_record_type: 'A',
     dns_server: '',
@@ -95,6 +98,9 @@ function startEdit(m) {
     url: m.url || '',
     host: m.host || '',
     port: m.port || null,
+    proxy_host: m.proxy_host || '',
+    proxy_port: m.proxy_port || null,
+    body_regex: m.body_regex || '',
     expected_status_codes: [...(m.expected_status_codes || [200])],
     dns_record_type: m.dns_record_type || 'A',
     dns_server: m.dns_server || '',
@@ -136,6 +142,9 @@ async function submitForm() {
     url: form.value.url,
     host: form.value.host,
     port: form.value.port || null,
+    proxy_host: form.value.proxy_host,
+    proxy_port: form.value.proxy_port || null,
+    body_regex: form.value.body_regex,
     expected_status_codes: form.value.expected_status_codes,
     dns_record_type: form.value.dns_record_type,
     dns_server: form.value.dns_server,
@@ -244,10 +253,25 @@ onMounted(fetchAll);
       </div>
 
       <!-- Target: HTTP -->
-      <div v-if="form.type === 'http'">
-        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">URL</label>
-        <input v-model="form.url" type="url" placeholder="https://example.com/health" :class="inputCls" />
-      </div>
+      <template v-if="form.type === 'http'">
+        <div>
+          <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">URL</label>
+          <input v-model="form.url" type="url" placeholder="https://example.com/health" :class="inputCls" />
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-2">
+            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+              Proxy host <span class="text-gray-300 dark:text-gray-600">(optional)</span>
+            </label>
+            <input v-model="form.proxy_host" type="text" placeholder="proxy.example.com or 192.168.1.1" :class="inputCls" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Proxy port</label>
+            <input v-model.number="form.proxy_port" type="number" min="1" max="65535" placeholder="8080" :class="inputCls"
+              :disabled="!form.proxy_host" />
+          </div>
+        </div>
+      </template>
 
       <!-- Target: TCP -->
       <div v-if="form.type === 'tcp'" class="grid grid-cols-3 gap-3">
@@ -315,13 +339,22 @@ onMounted(fetchAll);
         </div>
       </template>
 
-      <!-- HTTP: expected status codes -->
-      <div v-if="form.type === 'http'">
-        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">
-          Expected HTTP status codes <span class="text-gray-300 dark:text-gray-600">(comma-separated)</span>
-        </label>
-        <input v-model="expectedCodesStr" type="text" placeholder="200, 201, 204" :class="inputCls" />
-      </div>
+      <!-- HTTP: expected status codes + body regex -->
+      <template v-if="form.type === 'http'">
+        <div>
+          <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+            Expected HTTP status codes <span class="text-gray-300 dark:text-gray-600">(comma-separated)</span>
+          </label>
+          <input v-model="expectedCodesStr" type="text" placeholder="200, 201, 204" :class="inputCls" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+            Body regex <span class="text-gray-300 dark:text-gray-600">(optional — must match response body; failure_status if not)</span>
+          </label>
+          <input v-model="form.body_regex" type="text" placeholder='e.g. "ok"|status.*healthy' :class="inputCls"
+            spellcheck="false" autocomplete="off" />
+        </div>
+      </template>
 
       <!-- Failure status -->
       <div>
@@ -475,7 +508,7 @@ onMounted(fetchAll);
 
             <!-- Target -->
             <div class="text-xs text-gray-400 dark:text-gray-600 mb-1.5">
-              <span v-if="m.type === 'http'">{{ m.url }}</span>
+              <span v-if="m.type === 'http'">{{ m.url }}<span v-if="m.proxy_host" class="text-gray-300 dark:text-gray-700"> via {{ m.proxy_host }}:{{ m.proxy_port }}</span></span>
               <span v-else-if="m.type === 'tcp'">{{ m.host }}:{{ m.port }}</span>
               <span v-else-if="m.type === 'dns'">
                 {{ m.dns_record_type }} {{ m.host }}
@@ -506,6 +539,8 @@ onMounted(fetchAll);
               <span v-if="m.last_result?.resolved_values?.length" class="text-xs text-gray-400 dark:text-gray-500">
                 → {{ m.last_result.resolved_values.join(', ') }}
               </span>
+              <span v-if="m.last_result?.body_regex_match === true" class="text-xs text-green-500 dark:text-green-400">regex ✓</span>
+              <span v-else-if="m.last_result?.body_regex_match === false" class="text-xs text-red-400 dark:text-red-500">regex ✗</span>
               <span v-if="m.last_result?.error" class="text-xs text-red-400 dark:text-red-500">
                 {{ m.last_result.error }}
               </span>
@@ -550,6 +585,11 @@ onMounted(fetchAll);
         <div v-if="m.type === 'dns' && m.dns_expected_values?.length"
           class="mt-2 text-xs text-gray-400 dark:text-gray-600">
           erwartet: <span class="text-gray-500 dark:text-gray-400">{{ m.dns_expected_values.join(', ') }}</span>
+        </div>
+
+        <!-- Body regex summary -->
+        <div v-if="m.type === 'http' && m.body_regex" class="mt-2 text-xs text-gray-400 dark:text-gray-600">
+          body regex: <span class="font-mono text-gray-500 dark:text-gray-400">{{ m.body_regex }}</span>
         </div>
 
         <!-- Threshold summary -->

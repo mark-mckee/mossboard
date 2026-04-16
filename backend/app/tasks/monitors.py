@@ -68,12 +68,18 @@ def _resolve_packet_loss(thresholds, loss_percent, failure_status):
 def _check_http(monitor):
     """Perform an HTTP GET and return a result dict."""
     result = {"type": "http", "url": monitor.url}
+    proxies = None
+    if monitor.proxy_host and monitor.proxy_port:
+        proxy_url = f"http://{monitor.proxy_host}:{monitor.proxy_port}"
+        proxies = {"http": proxy_url, "https": proxy_url}
+        result["proxy"] = f"{monitor.proxy_host}:{monitor.proxy_port}"
     try:
         t0 = time.time()
         resp = _requests.get(
             monitor.url,
             timeout=monitor.timeout_seconds,
             allow_redirects=True,
+            proxies=proxies,
         )
         response_ms = (time.time() - t0) * 1000
         result["response_ms"] = round(response_ms, 2)
@@ -83,9 +89,20 @@ def _check_http(monitor):
             result["error"] = f"Unexpected HTTP {resp.status_code}"
             result["resolved_status"] = monitor.failure_status
         else:
-            result["resolved_status"] = _resolve_response_time(
+            resolved = _resolve_response_time(
                 monitor.response_time_thresholds, response_ms, monitor.failure_status
             )
+            if monitor.body_regex:
+                try:
+                    match = bool(re.search(monitor.body_regex, resp.text))
+                except re.error as exc:
+                    match = False
+                    result["body_regex_error"] = str(exc)
+                result["body_regex_match"] = match
+                if not match:
+                    result["error"] = f"Body did not match /{monitor.body_regex}/"
+                    resolved = monitor.failure_status
+            result["resolved_status"] = resolved
     except _requests.Timeout:
         result["error"] = "timeout"
         result["resolved_status"] = monitor.failure_status
@@ -309,6 +326,14 @@ def run_single_monitor(monitor_id: str):
 
     if service:
         current = service.status
+
+        # If the service is currently under maintenance, do not let the monitor
+        # override that status.  Clear any pending confirmation window and stop.
+        if current == "under_maintenance":
+            monitor.pending_status = None
+            monitor.pending_since = None
+            monitor.save()
+            return f"{monitor.name}: skipped (service under maintenance)"
 
         if candidate == current:
             # Situation matches current service status — reset any pending window.

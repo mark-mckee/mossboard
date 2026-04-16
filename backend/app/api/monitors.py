@@ -36,8 +36,12 @@ class MonitorIn(Schema):
     # thresholds
     response_time_thresholds = fields.List(fields.Nested(ResponseTimeThresholdSchema), load_default=[])
     packet_loss_thresholds   = fields.List(fields.Nested(PacketLossThresholdSchema), load_default=[])
+    # HTTP proxy (optional)
+    proxy_host              = fields.String(load_default="")
+    proxy_port              = fields.Integer(load_default=None, allow_none=True)
     # HTTP extras
     expected_status_codes   = fields.List(fields.Integer(), load_default=[200])
+    body_regex              = fields.String(load_default="")
     # DNS extras
     dns_record_type         = fields.String(load_default="A", validate=validate.OneOf(DNS_RECORD_TYPES))
     dns_server              = fields.String(load_default="")
@@ -58,9 +62,12 @@ class MonitorPatchIn(Schema):
     url                     = fields.String()
     host                    = fields.String()
     port                    = fields.Integer(allow_none=True)
+    proxy_host              = fields.String()
+    proxy_port              = fields.Integer(allow_none=True)
     response_time_thresholds = fields.List(fields.Nested(ResponseTimeThresholdSchema))
     packet_loss_thresholds   = fields.List(fields.Nested(PacketLossThresholdSchema))
     expected_status_codes   = fields.List(fields.Integer())
+    body_regex              = fields.String()
     dns_record_type         = fields.String(validate=validate.OneOf(DNS_RECORD_TYPES))
     dns_server              = fields.String()
     dns_expected_values     = fields.List(fields.String())
@@ -114,6 +121,8 @@ def _ser_monitor(m):
         "url": m.url,
         "host": m.host,
         "port": m.port,
+        "proxy_host": m.proxy_host or "",
+        "proxy_port": m.proxy_port,
         "dns_record_type": m.dns_record_type or "A",
         "dns_server": m.dns_server or "",
         "dns_expected_values": list(m.dns_expected_values or []),
@@ -126,6 +135,7 @@ def _ser_monitor(m):
             for t in m.packet_loss_thresholds
         ],
         "expected_status_codes": list(m.expected_status_codes),
+        "body_regex": m.body_regex or "",
         "failure_status": m.failure_status,
         "interval_seconds": m.interval_seconds,
         "timeout_seconds": m.timeout_seconds,
@@ -163,7 +173,10 @@ def create_monitor(json_data):
         url=json_data["url"],
         host=json_data["host"],
         port=json_data.get("port"),
+        proxy_host=json_data["proxy_host"],
+        proxy_port=json_data.get("proxy_port"),
         expected_status_codes=json_data["expected_status_codes"],
+        body_regex=json_data["body_regex"],
         dns_record_type=json_data["dns_record_type"],
         dns_server=json_data["dns_server"],
         dns_expected_values=json_data["dns_expected_values"],
@@ -196,7 +209,10 @@ def update_monitor(monitor_id, json_data):
     if "url"                   in json_data: monitor.url                   = json_data["url"]
     if "host"                  in json_data: monitor.host                  = json_data["host"]
     if "port"                  in json_data: monitor.port                  = json_data["port"]
+    if "proxy_host"            in json_data: monitor.proxy_host            = json_data["proxy_host"]
+    if "proxy_port"            in json_data: monitor.proxy_port            = json_data["proxy_port"]
     if "expected_status_codes" in json_data: monitor.expected_status_codes = json_data["expected_status_codes"]
+    if "body_regex"            in json_data: monitor.body_regex            = json_data["body_regex"]
     if "dns_record_type"       in json_data: monitor.dns_record_type       = json_data["dns_record_type"]
     if "dns_server"            in json_data: monitor.dns_server            = json_data["dns_server"]
     if "dns_expected_values"   in json_data: monitor.dns_expected_values   = json_data["dns_expected_values"]

@@ -41,6 +41,10 @@ class Monitor(Document):
     host = StringField(default="")
     port = IntField()
 
+    # --- HTTP proxy (optional) ---
+    proxy_host = StringField(default="")   # proxy hostname or IP; empty = no proxy
+    proxy_port = IntField(null=True)        # proxy port (required when proxy_host is set)
+
     # --- DNS-specific ---
     dns_record_type    = StringField(choices=DNS_RECORD_TYPES, default="A")
     dns_server         = StringField(default="")   # custom resolver IP; empty = system default
@@ -55,6 +59,8 @@ class Monitor(Document):
 
     # HTTP: which status codes count as a successful response
     expected_status_codes = ListField(IntField(), default=[200])
+    # HTTP: optional regex that must match the response body; empty = skip
+    body_regex = StringField(default="")
 
     # Status assigned on connection failure / timeout / unexpected HTTP code
     failure_status = StringField(choices=STATUS_CHOICES, default="major_outage")
