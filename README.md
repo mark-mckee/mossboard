@@ -16,12 +16,14 @@ Built with Python, Vue 3, and MongoDB.
 
 - **Public status page** — overall status banner, collapsible service sections, 24-hour history bars, scheduled maintenance notices, optional incident timeline
 - **Service detail** — 5-minute granularity history bar, 30-day and 12-month uptime summaries, inline metric charts, status change log, incident timeline
-- **Fullscreen monitor** — optimized for wall displays; live clock, pulsing indicators for degraded services
+- **Fullscreen monitor** — optimized for wall displays; live clock, pulsing indicators for degraded services; two views: standard card grid (`/monitor`) and compressed section view (`/monitor2`)
+- **Compressed monitor view** — sections collapse automatically when all services are operational (shows service count and green summary row); sections with any degraded service expand automatically and highlight affected services with pulsing status badges
 - **Metrics** — push time-series data via API token; display as current value and/or sparkline chart on the status page and service detail view
 - **Active monitoring** — HTTP, TCP, ICMP (ping), and DNS checks; threshold-based status mapping; anti-flap confirmation periods; staleness detection
 - **HTTP monitor options** — custom proxy (host + port), SSL certificate verification toggle, response body regex validation
 - **Incident management** — multi-step incident lifecycle: Investigating → Identified → Monitoring → Resolved
-- **Scheduled maintenance** — windows with optional auto-status: service is automatically set to `under_maintenance` on start and restored to `operational` on end; active monitors are paused for the duration
+- **Scheduled maintenance** — windows with optional auto-status: service is automatically set to `under_maintenance` on start and restored to `operational` on end; active monitors are paused for the duration; supports **multiple services per window**, **recurring schedules** (daily / weekly / monthly with configurable day), and inline editing
+- **Notifications** — fire-and-forget delivery via **HTTP webhook** (configurable method, headers, JSON body template) or **Email** (SMTP); trigger on maintenance announced/started/ended, incident created/updated/resolved, or monitor status transitions (filterable by from→to status and by service); template variables (`{{service_name}}`, `{{status}}`, `{{prev_status}}`, `{{title}}`, `{{message}}`, `{{timestamp}}`, and more) available in all body and subject templates; built-in test button sends a sample payload immediately
 - **API token auth** — push status updates and metric data from CI/CD or external tools; tokens can be scoped to specific services and/or specific metrics, with independent master switches for each operation type
 - **Status change notes** — attach an optional reason to every status change; shown in the service log; monitor-triggered changes include the measured value (response time, HTTP code, packet loss, etc.)
 - **Admin interface** — manage sections, services, incidents, maintenance, monitors, metrics, API tokens, users, and global settings
@@ -222,7 +224,8 @@ mossboard-worker    Up
 | URL | Description |
 |-----|-------------|
 | `http://localhost:3444/` | Public status page |
-| `http://localhost:3444/monitor` | Fullscreen monitor |
+| `http://localhost:3444/monitor` | Fullscreen monitor (card grid) |
+| `http://localhost:3444/monitor2` | Fullscreen monitor — compressed section view |
 | `http://localhost:3444/admin` | Admin interface |
 | `http://localhost:3444/docs` | Swagger API docs |
 
@@ -333,9 +336,44 @@ Go to **Admin → Users** to create dedicated accounts. Two roles are available:
 
 ### 6. Schedule maintenance
 
-Go to **Admin → Maintenance** to create planned maintenance windows. Enable **Auto-status** to have MOSSBoard automatically set the service to `under_maintenance` when the window starts and restore it to `operational` when it ends. Active monitors are paused while a service is in maintenance state and will not override the status.
+Go to **Admin → Maintenance** to create planned maintenance windows. Each window supports:
 
-### 7. Configure global settings
+- **Multiple services** — select any number of services to include in the window
+- **Auto-status** — MOSSBoard automatically sets each service to `under_maintenance` when the window starts and restores it to `operational` when it ends; active monitors are paused for the duration
+- **Recurring schedules** — choose *Daily*, *Weekly* (with configurable day of week), or *Monthly* (with configurable day of month); MOSSBoard spawns the next occurrence automatically when the current window ends
+- **Inline editing** — edit any existing window directly in the list without leaving the page
+
+### 7. Configure notifications (optional)
+
+Go to **Admin → Notifications** to set up automated alerts. The section has three tabs:
+
+**Destinations** — Define where notifications are delivered:
+- **Webhook** — HTTP POST (or GET/PUT/PATCH) to any URL with custom headers and a JSON body template
+- **Email** — sends via SMTP to a configured recipient address with a subject and plain-text body template
+
+Use the **Test** button on any destination to send a sample payload immediately.
+
+**Rules** — Map triggers to destinations:
+
+| Trigger | Fires when |
+|---------|-----------|
+| Maintenance Announced | A maintenance window is created |
+| Maintenance Started | A window becomes active |
+| Maintenance Ended | A window finishes |
+| Incident Created | A new incident is opened |
+| Incident Updated | An update is added to an incident |
+| Incident Resolved | An incident is resolved |
+| Monitor Status Change | A monitor changes status (optionally filter by from→to state) |
+
+Rules can be limited to specific services and, for monitor status changes, to specific from/to status combinations.
+
+**SMTP** — Configure the outgoing mail server (host, port, credentials, STARTTLS).
+
+**Template variables** available in webhook body, email subject, and email body:
+
+`{{service_name}}` · `{{service_slug}}` · `{{section_name}}` · `{{status}}` · `{{prev_status}}` · `{{title}}` · `{{description}}` · `{{starts_at}}` · `{{ends_at}}` · `{{message}}` · `{{monitor_name}}` · `{{recurrence}}` · `{{timestamp}}`
+
+### 8. Configure global settings
 
 Go to **Admin → Settings** to adjust board-wide behaviour:
 
@@ -534,14 +572,14 @@ docker compose exec backend bash
 mossboard/
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # API blueprints (public, admin, token auth, monitors, metrics, settings)
+│   │   ├── api/          # API blueprints (public, admin, token auth, monitors, metrics, settings, notifications)
 │   │   ├── models/       # MongoEngine models
-│   │   └── tasks/        # Celery tasks (snapshots, monitors, staleness, maintenance)
+│   │   └── tasks/        # Celery tasks (snapshots, monitors, staleness, maintenance, notifications)
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
 │   │   ├── composables/  # Shared state (useTheme, useLayout)
-│   │   ├── views/        # Vue pages (StatusPage, ServiceDetail, Monitor, admin/*)
+│   │   ├── views/        # Vue pages (StatusPage, ServiceDetail, Monitor, Monitor2, admin/*)
 │   │   └── components/   # Shared components (StatusBar, StatusBadge, MetricChart, ...)
 │   └── Dockerfile
 └── docker-compose.yml
