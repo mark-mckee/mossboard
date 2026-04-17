@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import StatusPage from '../views/StatusPage.vue';
 import ServiceDetail from '../views/ServiceDetail.vue';
 import Monitor from '../views/Monitor.vue';
+import Monitor2 from '../views/Monitor2.vue';
 import AdminLayout from '../views/admin/AdminLayout.vue';
 import Dashboard from '../views/admin/Dashboard.vue';
 import Sections from '../views/admin/Sections.vue';
@@ -19,6 +20,7 @@ export default createRouter({
   routes: [
     { path: '/', component: StatusPage },
     { path: '/monitor', component: Monitor },
+    { path: '/monitor2', component: Monitor2 },
     { path: '/services/:slug', component: ServiceDetail },
     {
       path: '/admin',

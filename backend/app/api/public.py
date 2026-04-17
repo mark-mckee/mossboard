@@ -291,29 +291,49 @@ def get_all_incidents():
 
 @public_bp.get("/maintenance")
 def get_maintenance():
+    from mongoengine import Q
     now = datetime.utcnow()
-    upcoming = ScheduledMaintenance.objects(
-        ends_at__gte=now, starts_at__lte=now + timedelta(days=7)
+    # Non-recurring: within the next 7 days
+    # Recurring: all upcoming (no time cap — next occurrence may be further out)
+    qs = ScheduledMaintenance.objects(
+        Q(ends_at__gte=now) &
+        (
+            Q(recurrence__in=["none", None], starts_at__lte=now + timedelta(days=7)) |
+            Q(recurrence__nin=["none", None])
+        )
     ).order_by("starts_at")
-    return {"maintenance": [_ser_maintenance(m) for m in upcoming]}
+    return {"maintenance": [_ser_maintenance(m) for m in qs]}
 
 
 def _ser_maintenance(m):
-    sec_name = None
+    # Merge legacy single `service` field with the new `services` list
     try:
-        if m.service and m.service.section:
-            sec_name = m.service.section.name
+        all_svcs = list(m.services) if m.services else []
+    except Exception:
+        all_svcs = []
+    try:
+        if m.service and m.service not in all_svcs:
+            all_svcs.insert(0, m.service)
     except Exception:
         pass
+    services_info = []
+    for svc in all_svcs:
+        try:
+            sec_name = svc.section.name if svc.section else None
+        except Exception:
+            sec_name = None
+        try:
+            services_info.append({"id": str(svc.id), "name": svc.name, "slug": svc.slug, "section_name": sec_name})
+        except Exception:
+            pass
     return {
-        "id":           str(m.id),
-        "service_id":   str(m.service.id) if m.service else None,
-        "service_name": m.service.name if m.service else None,
-        "section_name": sec_name,
-        "title":        m.title,
-        "description":  m.description,
-        "starts_at":    m.starts_at.isoformat() + "Z",
-        "ends_at":      m.ends_at.isoformat() + "Z",
+        "id":          str(m.id),
+        "services":    services_info,
+        "title":       m.title,
+        "description": m.description,
+        "starts_at":   m.starts_at.isoformat() + "Z",
+        "ends_at":     m.ends_at.isoformat() + "Z",
+        "recurrence":  m.recurrence or "none",
     }
 
 

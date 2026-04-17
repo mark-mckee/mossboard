@@ -159,11 +159,13 @@ onUnmounted(() => clearInterval(interval));
           <div class="flex items-start gap-2">
             <span v-if="isActive(m)" class="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/30 shrink-0 mt-0.5">Active</span>
             <div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-sm text-gray-800 dark:text-gray-200 font-medium">{{ m.title }}</span>
-                <span class="text-xs text-gray-400 dark:text-gray-500">
-                  <template v-if="m.section_name">{{ m.section_name }} › </template>{{ m.service_name }}
-                </span>
+                <template v-if="m.services && m.services.length">
+                  <span v-for="svc in m.services" :key="svc.id" class="text-xs text-gray-400 dark:text-gray-500">
+                    <template v-if="svc.section_name">{{ svc.section_name }} › </template>{{ svc.name }}
+                  </span>
+                </template>
               </div>
               <div class="text-xs text-gray-500 mt-0.5">{{ formatWindow(m) }}</div>
               <div v-if="m.description" class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">{{ m.description }}</div>

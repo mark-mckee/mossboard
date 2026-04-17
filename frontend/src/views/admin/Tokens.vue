@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue';
+import { Pencil, X } from 'lucide-vue-next';
 
 const tokens   = ref([]);
 const services = ref([]);
@@ -7,6 +8,7 @@ const metrics  = ref([]);
 const showForm = ref(false);
 const newToken = ref(null);
 const error    = ref('');
+const editingId = ref(null);   // token id currently being edited
 
 const EMPTY_FORM = () => ({
   name:                  '',
@@ -15,10 +17,12 @@ const EMPTY_FORM = () => ({
   allow_metric_pushes:   true,
   metric_ids:            [],
 });
-const form = ref(EMPTY_FORM());
+const form     = ref(EMPTY_FORM());
+const editForm = ref(EMPTY_FORM());
 
 const inputCls = 'w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none';
 
+// ── data ─────────────────────────────────────────────────────────────────────
 async function fetchAll() {
   const [tokRes, svcRes, metRes] = await Promise.all([
     fetch('/api/v1/admin/tokens'),
@@ -31,9 +35,9 @@ async function fetchAll() {
   buildServicesBySection();
 }
 
+// ── create ───────────────────────────────────────────────────────────────────
 async function createToken() {
   error.value = '';
-  // When a section is disabled, clear its scope list to avoid confusion
   const body = { ...form.value };
   if (!body.allow_service_updates) body.service_ids = [];
   if (!body.allow_metric_pushes)   body.metric_ids  = [];
@@ -48,9 +52,36 @@ async function createToken() {
   } else { error.value = 'Failed to create.'; }
 }
 
+// ── edit ─────────────────────────────────────────────────────────────────────
+function openEdit(token) {
+  editingId.value = token.id;
+  editForm.value = {
+    allow_service_updates: token.allow_service_updates ?? true,
+    service_ids:           token.service_ids ?? [],
+    allow_metric_pushes:   token.allow_metric_pushes ?? true,
+    metric_ids:            token.metric_ids ?? [],
+  };
+}
+
+function closeEdit() {
+  editingId.value = null;
+}
+
+async function saveEdit(token) {
+  const body = { ...editForm.value };
+  if (!body.allow_service_updates) body.service_ids = [];
+  if (!body.allow_metric_pushes)   body.metric_ids  = [];
+  const res = await fetch(`/api/v1/admin/tokens/${token.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (res.ok) { closeEdit(); await fetchAll(); }
+}
+
+// ── toggle / delete ──────────────────────────────────────────────────────────
 async function toggleToken(token) {
   await fetch(`/api/v1/admin/tokens/${token.id}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !token.active }),
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active: !token.active }),
   });
   await fetchAll();
 }
@@ -58,6 +89,7 @@ async function toggleToken(token) {
 async function deleteToken(id) {
   if (!confirm('Revoke this token permanently?')) return;
   await fetch(`/api/v1/admin/tokens/${id}`, { method: 'DELETE' });
+  if (editingId.value === id) closeEdit();
   await fetchAll();
 }
 
@@ -92,7 +124,6 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-// Group services by section for the checkbox list
 const servicesBySectionMap = ref({});
 function buildServicesBySection() {
   const map = {};
@@ -111,7 +142,7 @@ onMounted(fetchAll);
   <div class="p-8">
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-lg font-bold text-gray-900 dark:text-white">API Tokens</h1>
-      <button @click="showForm = !showForm; newToken = null"
+      <button @click="showForm = !showForm; newToken = null; editingId = null"
         class="bg-gray-800 hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
         + New Token
       </button>
@@ -131,89 +162,22 @@ onMounted(fetchAll);
     <div v-if="showForm" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 mb-6 shadow-sm dark:shadow-none">
       <h2 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">New Token</h2>
       <div class="space-y-5">
-
-        <!-- Name -->
         <div>
           <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Name</label>
           <input v-model="form.name" type="text" placeholder="e.g. CI Pipeline" :class="inputCls" />
         </div>
 
-        <!-- Service updates section -->
-        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-          <!-- Header with toggle -->
-          <div class="px-4 py-3 bg-gray-50 dark:bg-gray-800 flex items-center justify-between gap-3">
-            <div>
-              <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">Service status updates</div>
-              <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
-                Allow <code class="font-mono">PATCH /api/v1/services/*/status</code>
-              </div>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" v-model="form.allow_service_updates" class="sr-only peer" />
-              <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-checked:bg-gray-700 dark:peer-checked:bg-gray-400 rounded-full transition-colors
-                          after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4
-                          after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
-            </label>
-          </div>
-          <!-- Scope list (shown only when enabled) -->
-          <div v-if="form.allow_service_updates" class="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-            <div class="text-xs text-gray-400 dark:text-gray-600 mb-2">
-              Restrict to specific services <span class="text-gray-300 dark:text-gray-600">(empty = all services)</span>
-            </div>
-            <div v-for="(svcs, secName) in servicesBySectionMap" :key="secName" class="mb-2">
-              <div class="text-xs text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-1">{{ secName }}</div>
-              <div class="space-y-1 pl-2">
-                <label v-for="svc in svcs" :key="svc.id" class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" :value="svc.id" v-model="form.service_ids" class="rounded accent-gray-700 dark:accent-gray-400" />
-                  <span class="text-xs text-gray-700 dark:text-gray-300">{{ svc.name }}</span>
-                </label>
-              </div>
-            </div>
-            <div v-if="!services.length" class="text-xs text-gray-400 dark:text-gray-600 italic">No services yet</div>
-          </div>
-          <div v-else class="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
-            <p class="text-xs text-red-400 dark:text-red-500">This token cannot update service statuses.</p>
-          </div>
-        </div>
-
-        <!-- Metric pushes section -->
-        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-          <!-- Header with toggle -->
-          <div class="px-4 py-3 bg-gray-50 dark:bg-gray-800 flex items-center justify-between gap-3">
-            <div>
-              <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">Metric data pushes</div>
-              <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
-                Allow <code class="font-mono">POST /api/v1/metrics/*/points</code>
-              </div>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" v-model="form.allow_metric_pushes" class="sr-only peer" />
-              <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-checked:bg-gray-700 dark:peer-checked:bg-gray-400 rounded-full transition-colors
-                          after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4
-                          after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
-            </label>
-          </div>
-          <!-- Scope list (shown only when enabled) -->
-          <div v-if="form.allow_metric_pushes" class="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-            <div class="text-xs text-gray-400 dark:text-gray-600 mb-2">
-              Restrict to specific metrics <span class="text-gray-300 dark:text-gray-600">(empty = all metrics)</span>
-            </div>
-            <div v-if="metrics.length" class="space-y-1.5">
-              <label v-for="m in metrics" :key="m.id" class="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" :value="m.id" v-model="form.metric_ids" class="rounded accent-gray-700 dark:accent-gray-400" />
-                <span class="text-xs text-gray-700 dark:text-gray-300">{{ m.name }}</span>
-                <span class="text-xs text-gray-400 dark:text-gray-600">{{ m.service_name }}</span>
-              </label>
-            </div>
-            <div v-else class="text-xs text-gray-400 dark:text-gray-600 italic">No metrics yet</div>
-          </div>
-          <div v-else class="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
-            <p class="text-xs text-red-400 dark:text-red-500">This token cannot push metric data.</p>
-          </div>
-        </div>
+        <!-- Scope editor (reusable via v-model on the sub-form ref) -->
+        <ScopeEditor
+          :services-by-section="servicesBySectionMap"
+          :metrics="metrics"
+          v-model:allow-service-updates="form.allow_service_updates"
+          v-model:service-ids="form.service_ids"
+          v-model:allow-metric-pushes="form.allow_metric_pushes"
+          v-model:metric-ids="form.metric_ids"
+        />
 
         <div v-if="error" class="text-red-500 dark:text-red-400 text-xs">{{ error }}</div>
-
         <div class="flex gap-2">
           <button @click="createToken"
             class="bg-gray-800 hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 text-white text-xs px-4 py-1.5 rounded-lg transition-colors">
@@ -229,39 +193,139 @@ onMounted(fetchAll);
 
     <!-- Token list -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden shadow-sm dark:shadow-none">
-      <div
-        v-for="token in tokens" :key="token.id"
-        class="flex items-start justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0"
-        :class="!token.active ? 'opacity-50' : ''"
-      >
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="text-sm text-gray-800 dark:text-gray-200">{{ token.name }}</span>
-            <code class="text-xs text-gray-400 dark:text-gray-500">{{ token.token_prefix }}…</code>
+
+      <template v-for="token in tokens" :key="token.id">
+
+        <!-- Token row -->
+        <div class="flex items-start justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800"
+          :class="[!token.active ? 'opacity-50' : '', editingId === token.id ? 'bg-gray-50 dark:bg-gray-800/50' : '']">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-800 dark:text-gray-200">{{ token.name }}</span>
+              <code class="text-xs text-gray-400 dark:text-gray-500">{{ token.token_prefix }}…</code>
+            </div>
+            <div class="mt-0.5 space-y-0.5">
+              <div v-for="(line, i) in scopeLines(token)" :key="i"
+                class="text-xs" :class="line.cls || 'text-gray-400 dark:text-gray-600'">
+                {{ line.text }}
+              </div>
+            </div>
+            <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">Last used: {{ formatDate(token.last_used) }}</div>
           </div>
-          <div class="mt-0.5 space-y-0.5">
-            <div v-for="(line, i) in scopeLines(token)" :key="i"
-              class="text-xs" :class="line.cls || 'text-gray-400 dark:text-gray-600'">
-              {{ line.text }}
+          <div class="flex items-center gap-2 ml-4 shrink-0 mt-0.5">
+            <span class="text-xs px-2 py-0.5 rounded border"
+              :class="token.active
+                ? 'text-green-600 dark:text-green-400 border-green-500/30 bg-green-500/10'
+                : 'text-gray-400 border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800'">
+              {{ token.active ? 'Active' : 'Inactive' }}
+            </span>
+            <!-- Edit scope toggle -->
+            <button @click="editingId === token.id ? closeEdit() : openEdit(token)"
+              class="p-1.5 rounded-lg transition-colors"
+              :class="editingId === token.id
+                ? 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700'
+                : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
+              title="Edit scope">
+              <component :is="editingId === token.id ? X : Pencil" class="w-3.5 h-3.5" :stroke-width="1.75" />
+            </button>
+            <button @click="toggleToken(token)" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+              {{ token.active ? 'Disable' : 'Enable' }}
+            </button>
+            <button @click="deleteToken(token.id)" class="text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors">
+              Revoke
+            </button>
+          </div>
+        </div>
+
+        <!-- Inline scope editor -->
+        <div v-if="editingId === token.id"
+          class="px-4 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 space-y-4">
+
+          <!-- Service updates -->
+          <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <div class="px-4 py-3 bg-white dark:bg-gray-900 flex items-center justify-between gap-3">
+              <div>
+                <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">Service status updates</div>
+                <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
+                  <code class="font-mono">PATCH /api/v1/services/*/status</code>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input type="checkbox" v-model="editForm.allow_service_updates" class="sr-only peer" />
+                <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-checked:bg-gray-700 dark:peer-checked:bg-gray-400 rounded-full transition-colors
+                            after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4
+                            after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+              </label>
+            </div>
+            <div v-if="editForm.allow_service_updates" class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <div class="text-xs text-gray-400 dark:text-gray-600 mb-2">
+                Restrict to specific services <span class="text-gray-300 dark:text-gray-600">(empty = all)</span>
+              </div>
+              <div v-for="(svcs, secName) in servicesBySectionMap" :key="secName" class="mb-2">
+                <div class="text-xs text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-1">{{ secName }}</div>
+                <div class="space-y-1 pl-2">
+                  <label v-for="svc in svcs" :key="svc.id" class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" :value="svc.id" v-model="editForm.service_ids" class="rounded accent-gray-700 dark:accent-gray-400" />
+                    <span class="text-xs text-gray-700 dark:text-gray-300">{{ svc.name }}</span>
+                  </label>
+                </div>
+              </div>
+              <div v-if="!services.length" class="text-xs text-gray-400 dark:text-gray-600 italic">No services yet</div>
+            </div>
+            <div v-else class="px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <p class="text-xs text-red-400 dark:text-red-500">This token cannot update service statuses.</p>
             </div>
           </div>
-          <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">Last used: {{ formatDate(token.last_used) }}</div>
+
+          <!-- Metric pushes -->
+          <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <div class="px-4 py-3 bg-white dark:bg-gray-900 flex items-center justify-between gap-3">
+              <div>
+                <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">Metric data pushes</div>
+                <div class="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
+                  <code class="font-mono">POST /api/v1/metrics/*/points</code>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input type="checkbox" v-model="editForm.allow_metric_pushes" class="sr-only peer" />
+                <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-checked:bg-gray-700 dark:peer-checked:bg-gray-400 rounded-full transition-colors
+                            after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4
+                            after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+              </label>
+            </div>
+            <div v-if="editForm.allow_metric_pushes" class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <div class="text-xs text-gray-400 dark:text-gray-600 mb-2">
+                Restrict to specific metrics <span class="text-gray-300 dark:text-gray-600">(empty = all)</span>
+              </div>
+              <div v-if="metrics.length" class="space-y-1.5">
+                <label v-for="m in metrics" :key="m.id" class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" :value="m.id" v-model="editForm.metric_ids" class="rounded accent-gray-700 dark:accent-gray-400" />
+                  <span class="text-xs text-gray-700 dark:text-gray-300">{{ m.name }}</span>
+                  <span class="text-xs text-gray-400 dark:text-gray-600">{{ m.service_name }}</span>
+                </label>
+              </div>
+              <div v-else class="text-xs text-gray-400 dark:text-gray-600 italic">No metrics yet</div>
+            </div>
+            <div v-else class="px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <p class="text-xs text-red-400 dark:text-red-500">This token cannot push metric data.</p>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-3">
+            <button @click="saveEdit(token)"
+              class="bg-gray-800 hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 text-white text-xs px-4 py-1.5 rounded-lg transition-colors">
+              Save
+            </button>
+            <button @click="closeEdit()"
+              class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+              Cancel
+            </button>
+          </div>
         </div>
-        <div class="flex items-center gap-3 ml-4 shrink-0 mt-0.5">
-          <span class="text-xs px-2 py-0.5 rounded border"
-            :class="token.active
-              ? 'text-green-600 dark:text-green-400 border-green-500/30 bg-green-500/10'
-              : 'text-gray-400 border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800'">
-            {{ token.active ? 'Active' : 'Inactive' }}
-          </span>
-          <button @click="toggleToken(token)" class="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
-            {{ token.active ? 'Disable' : 'Enable' }}
-          </button>
-          <button @click="deleteToken(token.id)" class="text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors">
-            Revoke
-          </button>
-        </div>
-      </div>
+
+      </template>
+
       <div v-if="!tokens.length" class="px-4 py-8 text-center text-gray-400 dark:text-gray-600 text-sm">No tokens yet.</div>
     </div>
   </div>

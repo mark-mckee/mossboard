@@ -69,12 +69,24 @@ class IncidentPatchIn(Schema):
     resolved = fields.Boolean(load_default=False, metadata={"description": "Set true to mark resolved"})
 
 class MaintenanceIn(Schema):
-    service_id  = fields.String(required=True, metadata={"description": "Service ID"})
-    title       = fields.String(required=True)
-    description = fields.String(load_default="")
-    starts_at   = fields.String(required=True, metadata={"description": "ISO 8601 datetime"})
-    ends_at     = fields.String(required=True, metadata={"description": "ISO 8601 datetime"})
-    auto_status = fields.Boolean(load_default=False, metadata={"description": "Auto-set service to under_maintenance during window"})
+    service_ids    = fields.List(fields.String(), load_default=[], metadata={"description": "List of service IDs"})
+    title          = fields.String(required=True)
+    description    = fields.String(load_default="")
+    starts_at      = fields.String(required=True, metadata={"description": "ISO 8601 datetime"})
+    ends_at        = fields.String(required=True, metadata={"description": "ISO 8601 datetime"})
+    auto_status    = fields.Boolean(load_default=False, metadata={"description": "Auto-set services to under_maintenance during window"})
+    recurrence     = fields.String(load_default="none", validate=validate.OneOf(["none", "daily", "weekly", "monthly"]))
+    recurrence_day = fields.String(load_default="")
+
+class MaintenancePatchIn(Schema):
+    service_ids    = fields.List(fields.String())
+    title          = fields.String()
+    description    = fields.String()
+    starts_at      = fields.String(metadata={"description": "ISO 8601 datetime"})
+    ends_at        = fields.String(metadata={"description": "ISO 8601 datetime"})
+    auto_status    = fields.Boolean()
+    recurrence     = fields.String(validate=validate.OneOf(["none", "daily", "weekly", "monthly"]))
+    recurrence_day = fields.String()
 
 class TokenIn(Schema):
     name                  = fields.String(required=True)
@@ -86,7 +98,11 @@ class TokenIn(Schema):
                                         metadata={"description": "Metric IDs; empty = all (when allow_metric_pushes is true)"})
 
 class TokenPatchIn(Schema):
-    active = fields.Boolean(required=True)
+    active                = fields.Boolean()
+    allow_service_updates = fields.Boolean()
+    service_ids           = fields.List(fields.String())
+    allow_metric_pushes   = fields.Boolean()
+    metric_ids            = fields.List(fields.String())
 
 class UserIn(Schema):
     username = fields.String(required=True)
@@ -345,7 +361,13 @@ def create_token(json_data):
 def toggle_token(token_id, json_data):
     require_auth()
     token = _get_or_404(APIToken.objects(id=token_id))
-    token.active = json_data["active"]
+    if "active"                in json_data: token.active                = json_data["active"]
+    if "allow_service_updates" in json_data: token.allow_service_updates = json_data["allow_service_updates"]
+    if "allow_metric_pushes"   in json_data: token.allow_metric_pushes   = json_data["allow_metric_pushes"]
+    if "service_ids"           in json_data:
+        token.services = [s for s in (Service.objects(id=sid).first() for sid in json_data["service_ids"]) if s]
+    if "metric_ids"            in json_data:
+        token.metrics  = [m for m in (Metric.objects(id=mid).first()  for mid in json_data["metric_ids"])  if m]
     token.save()
     return _ser_token(token)
 
@@ -408,21 +430,29 @@ def delete_user(user_id):
 @admin_bp.get("/maintenance")
 def list_maintenance():
     require_auth()
-    return {"maintenance": [_ser_maintenance(m) for m in ScheduledMaintenance.objects().order_by("starts_at")]}
+    result = []
+    for m in ScheduledMaintenance.objects().order_by("starts_at"):
+        try:
+            result.append(_ser_maintenance(m))
+        except Exception as e:
+            current_app.logger.warning(f"Skipping maintenance {m.id}: {e}")
+    return {"maintenance": result}
 
 
 @admin_bp.post("/maintenance")
 @admin_bp.input(MaintenanceIn)
 def create_maintenance(json_data):
     require_auth()
-    service = _get_or_404(Service.objects(id=json_data["service_id"]))
+    services = [_get_or_404(Service.objects(id=sid)) for sid in json_data.get("service_ids", [])]
     m = ScheduledMaintenance(
-        service=service,
+        services=services,
         title=json_data["title"].strip(),
         description=json_data["description"],
         starts_at=datetime.fromisoformat(json_data["starts_at"].replace("Z", "+00:00")).replace(tzinfo=None),
         ends_at=datetime.fromisoformat(json_data["ends_at"].replace("Z", "+00:00")).replace(tzinfo=None),
         auto_status=json_data["auto_status"],
+        recurrence=json_data.get("recurrence", "none"),
+        recurrence_day=json_data.get("recurrence_day", ""),
     ).save()
     return _ser_maintenance(m), 201
 
@@ -432,6 +462,27 @@ def delete_maintenance(maintenance_id):
     require_auth()
     _get_or_404(ScheduledMaintenance.objects(id=maintenance_id)).delete()
     return "", 204
+
+
+@admin_bp.patch("/maintenance/<maintenance_id>")
+@admin_bp.input(MaintenancePatchIn)
+def update_maintenance(maintenance_id, json_data):
+    require_auth()
+    m = _get_or_404(ScheduledMaintenance.objects(id=maintenance_id))
+    if "service_ids" in json_data:
+        m.services = [_get_or_404(Service.objects(id=sid)) for sid in json_data["service_ids"]]
+        m.service  = None  # clear legacy field when explicitly setting new list
+    if "title"          in json_data: m.title          = json_data["title"].strip()
+    if "description"    in json_data: m.description    = json_data["description"]
+    if "starts_at"      in json_data:
+        m.starts_at = datetime.fromisoformat(json_data["starts_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+    if "ends_at"        in json_data:
+        m.ends_at   = datetime.fromisoformat(json_data["ends_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+    if "auto_status"    in json_data: m.auto_status    = json_data["auto_status"]
+    if "recurrence"     in json_data: m.recurrence     = json_data["recurrence"]
+    if "recurrence_day" in json_data: m.recurrence_day = json_data["recurrence_day"]
+    m.save()
+    return _ser_maintenance(m)
 
 
 # ── Serializers ───────────────────────────────────────────────────────────────
@@ -478,16 +529,38 @@ def _ser_token(t):
             "last_used": t.last_used.isoformat() + "Z" if t.last_used else None}
 
 def _ser_maintenance(m):
-    sec_name = None
+    # Merge legacy single `service` field with the new `services` list
     try:
-        if m.service and m.service.section: sec_name = m.service.section.name
-    except Exception: pass
-    return {"id": str(m.id), "service_id": str(m.service.id) if m.service else None,
-            "service_name": m.service.name if m.service else None, "section_name": sec_name,
-            "title": m.title, "description": m.description,
-            "starts_at": m.starts_at.isoformat() + "Z", "ends_at": m.ends_at.isoformat() + "Z",
-            "auto_status": m.auto_status or False,
-            "created_at": m.created_at.isoformat() + "Z"}
+        all_svcs = list(m.services) if m.services else []
+    except Exception:
+        all_svcs = []
+    try:
+        if m.service and m.service not in all_svcs:
+            all_svcs.insert(0, m.service)
+    except Exception:
+        pass
+    services_info = []
+    for svc in all_svcs:
+        try:
+            sec_name = svc.section.name if svc.section else None
+        except Exception:
+            sec_name = None
+        try:
+            services_info.append({"id": str(svc.id), "name": svc.name, "slug": svc.slug, "section_name": sec_name})
+        except Exception:
+            pass
+    return {
+        "id":            str(m.id),
+        "services":      services_info,
+        "title":         m.title,
+        "description":   m.description,
+        "starts_at":     m.starts_at.isoformat() + "Z",
+        "ends_at":       m.ends_at.isoformat() + "Z",
+        "auto_status":   m.auto_status or False,
+        "recurrence":    m.recurrence or "none",
+        "recurrence_day": m.recurrence_day or "",
+        "created_at":    m.created_at.isoformat() + "Z",
+    }
 
 def _ser_user(u):
     return {"id": str(u.id), "username": u.username, "role": u.role, "active": u.active,

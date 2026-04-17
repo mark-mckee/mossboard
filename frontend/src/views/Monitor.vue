@@ -171,7 +171,10 @@ document.addEventListener('fullscreenchange', () => {
         <div class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
         Refreshes every 30 s
       </div>
-      <a href="/" class="text-xs text-gray-700 hover:text-gray-500 transition-colors">← Status Page</a>
+      <div class="flex items-center gap-4">
+        <a href="/monitor2" class="text-xs text-gray-700 hover:text-gray-500 transition-colors">Monitor Compressed →</a>
+        <a href="/" class="text-xs text-gray-700 hover:text-gray-500 transition-colors">← Status Page</a>
+      </div>
     </footer>
   </div>
 </template>
