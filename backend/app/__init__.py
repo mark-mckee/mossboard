@@ -29,13 +29,14 @@ def create_app(config_name=None):
                          r"/api/v1/metrics*":  {"origins": "*"}})
 
     # Register blueprints
-    from app.api import public_bp, admin_bp, token_bp, monitors_bp, settings_bp, metrics_bp
+    from app.api import public_bp, admin_bp, token_bp, monitors_bp, settings_bp, metrics_bp, notifications_bp
     app.register_blueprint(public_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(token_bp)
     app.register_blueprint(monitors_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(notifications_bp)
 
     # Add Bearer token security scheme to OpenAPI spec
     @app.spec_processor

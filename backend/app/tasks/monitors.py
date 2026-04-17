@@ -316,6 +316,23 @@ def _apply_service_status(service, new_status, monitor_name, result=None):
     trigger = _trigger_str(result)
     note    = f"[monitor:{monitor_name}]" + (f" {trigger}" if trigger else "")
     StatusSnapshot(service=service, status=new_status, note=note.strip()).save()
+    try:
+        from app.tasks.notifications import fire_rules
+        section_name = ""
+        try:
+            section_name = service.section.name if service.section else ""
+        except Exception:
+            pass
+        fire_rules("monitor_status_change", {
+            "service_name": service.name,
+            "service_slug": service.slug,
+            "section_name": section_name,
+            "prev_status":  old_status,
+            "status":       new_status,
+            "monitor_name": monitor_name,
+        })
+    except Exception:
+        pass
     return f"{monitor_name}: {old_status} → {new_status}"
 
 

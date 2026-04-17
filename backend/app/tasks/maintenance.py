@@ -68,7 +68,8 @@ def check_maintenance_windows():
         starts_at__lte=now,
         ends_at__gte=now,
     ):
-        for service in _all_services(m):
+        svcs = _all_services(m)
+        for service in svcs:
             try:
                 service.status = "under_maintenance"
                 service.updated_at = now
@@ -84,6 +85,18 @@ def check_maintenance_windows():
                 pass
         m.auto_status_applied = True
         m.save()
+        try:
+            from app.tasks.notifications import fire_rules
+            svc_names = ", ".join(s.name for s in svcs) if svcs else ""
+            fire_rules("maintenance_started", {
+                "title":        m.title,
+                "description":  m.description or "",
+                "starts_at":    m.starts_at.isoformat() + "Z",
+                "ends_at":      m.ends_at.isoformat() + "Z",
+                "service_name": svc_names,
+            })
+        except Exception:
+            pass
 
     # ── Restore services whose window just ended ─────────────────────────────
     for m in ScheduledMaintenance.objects(
@@ -119,6 +132,20 @@ def check_maintenance_windows():
         # Mark as done so we don't process it again
         m.auto_status_applied = False
         m.save()
+
+        try:
+            from app.tasks.notifications import fire_rules
+            end_svcs = _all_services(m)
+            svc_names = ", ".join(s.name for s in end_svcs) if end_svcs else ""
+            fire_rules("maintenance_ended", {
+                "title":        m.title,
+                "description":  m.description or "",
+                "starts_at":    m.starts_at.isoformat() + "Z",
+                "ends_at":      m.ends_at.isoformat() + "Z",
+                "service_name": svc_names,
+            })
+        except Exception:
+            pass
 
         # Spawn next recurrence
         if m.recurrence != "none":

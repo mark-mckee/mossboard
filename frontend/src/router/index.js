@@ -11,6 +11,7 @@ import Incidents from '../views/admin/Incidents.vue';
 import Maintenance from '../views/admin/Maintenance.vue';
 import Tokens from '../views/admin/Tokens.vue';
 import Users from '../views/admin/Users.vue';
+import Notifications from '../views/admin/Notifications.vue';
 import Monitors from '../views/admin/Monitors.vue';
 import Metrics  from '../views/admin/Metrics.vue';
 import Settings from '../views/admin/Settings.vue';
@@ -31,9 +32,10 @@ export default createRouter({
         { path: 'services',   component: Services    },
         { path: 'incidents',  component: Incidents   },
         { path: 'maintenance',component: Maintenance },
-        { path: 'monitors',   component: Monitors    },
-        { path: 'metrics',    component: Metrics     },
-        { path: 'tokens',     component: Tokens      },
+        { path: 'monitors',      component: Monitors      },
+        { path: 'metrics',       component: Metrics       },
+        { path: 'notifications', component: Notifications },
+        { path: 'tokens',        component: Tokens        },
         { path: 'users',      component: Users       },
         { path: 'settings',   component: Settings    },
       ],

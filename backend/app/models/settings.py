@@ -14,6 +14,14 @@ class Settings(Document):
     incident_timeline_days  = IntField(default=7)
     wide_layout             = BooleanField(default=False)
 
+    # SMTP settings for email notifications
+    smtp_host     = StringField(default="")
+    smtp_port     = IntField(default=587)
+    smtp_username = StringField(default="")
+    smtp_password = StringField(default="")
+    smtp_from     = StringField(default="")
+    smtp_use_tls  = BooleanField(default=True)
+
     meta = {"collection": "settings"}
 
     @classmethod
@@ -27,6 +35,12 @@ class Settings(Document):
                 show_incident_timeline=False,
                 incident_timeline_days=7,
                 wide_layout=False,
+                smtp_host="",
+                smtp_port=587,
+                smtp_username="",
+                smtp_password="",
+                smtp_from="",
+                smtp_use_tls=True,
             )
             obj.save()
         return obj

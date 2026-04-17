@@ -7,5 +7,6 @@ from .user import User
 from .monitor import Monitor
 from .settings import Settings
 from .metric import Metric, MetricPoint
+from .notification import NotificationDestination, NotificationRule
 
-__all__ = ["Section", "Service", "StatusSnapshot", "Incident", "IncidentUpdate", "APIToken", "ScheduledMaintenance", "User", "Monitor", "Settings", "Metric", "MetricPoint"]
+__all__ = ["Section", "Service", "StatusSnapshot", "Incident", "IncidentUpdate", "APIToken", "ScheduledMaintenance", "User", "Monitor", "Settings", "Metric", "MetricPoint", "NotificationDestination", "NotificationRule"]

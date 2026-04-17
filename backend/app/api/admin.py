@@ -290,6 +290,21 @@ def create_incident(json_data):
     service = _get_or_404(Service.objects(id=json_data["service_id"]))
     update  = IncidentUpdate(status=json_data["status"], message=json_data["message"].strip())
     incident = Incident(service=service, title=json_data["title"].strip(), updates=[update]).save()
+    try:
+        from app.tasks.notifications import fire_rules
+        section_name = ""
+        try:
+            section_name = service.section.name if service.section else ""
+        except Exception:
+            pass
+        fire_rules("incident_created", {
+            "service_name": service.name, "service_slug": service.slug,
+            "section_name": section_name,
+            "title": incident.title, "description": "",
+            "status": update.status, "message": update.message,
+        })
+    except Exception:
+        pass
     return serialize_incident(incident), 201
 
 
@@ -303,6 +318,24 @@ def add_incident_update(incident_id, json_data):
     if json_data["status"] == "resolved" and not incident.resolved_at:
         incident.resolved_at = datetime.utcnow()
     incident.save()
+    try:
+        from app.tasks.notifications import fire_rules
+        service = incident.service
+        section_name = ""
+        try:
+            section_name = service.section.name if service.section else ""
+        except Exception:
+            pass
+        trigger = "incident_resolved" if json_data["status"] == "resolved" else "incident_updated"
+        fire_rules(trigger, {
+            "service_name": service.name if service else "",
+            "service_slug": service.slug if service else "",
+            "section_name": section_name,
+            "title": incident.title, "description": "",
+            "status": update.status, "message": update.message,
+        })
+    except Exception:
+        pass
     return serialize_incident(incident)
 
 
@@ -454,6 +487,19 @@ def create_maintenance(json_data):
         recurrence=json_data.get("recurrence", "none"),
         recurrence_day=json_data.get("recurrence_day", ""),
     ).save()
+    try:
+        from app.tasks.notifications import fire_rules
+        svc_names = ", ".join(s.name for s in services) if services else ""
+        fire_rules("maintenance_created", {
+            "title":       m.title,
+            "description": m.description or "",
+            "starts_at":   m.starts_at.isoformat() + "Z",
+            "ends_at":     m.ends_at.isoformat() + "Z",
+            "service_name": svc_names,
+            "recurrence":  m.recurrence or "none",
+        })
+    except Exception:
+        pass
     return _ser_maintenance(m), 201
 
 
