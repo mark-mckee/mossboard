@@ -37,6 +37,14 @@ _STATUS_PRIORITY = {
     "major_outage": 6,
 }
 
+def _worst(s1, s2):
+    """Return whichever of the two status strings has higher severity."""
+    if s1 is None:
+        return s2
+    if s2 is None:
+        return s1
+    return s1 if _STATUS_PRIORITY.get(s1, 0) >= _STATUS_PRIORITY.get(s2, 0) else s2
+
 
 def _compute_service_status(service, source_monitor=None, source_status=None):
     """Compute the rolled-up service status across all active monitors.
