@@ -38,13 +38,26 @@ _STATUS_PRIORITY = {
 }
 
 
-def _worst(s1, s2):
-    """Return whichever of the two status strings has higher severity."""
-    if s1 is None:
-        return s2
-    if s2 is None:
-        return s1
-    return s1 if _STATUS_PRIORITY.get(s1, 0) >= _STATUS_PRIORITY.get(s2, 0) else s2
+def _compute_service_status(service, source_monitor=None, source_status=None):
+    """Compute the rolled-up service status across all active monitors.
+
+    For each active monitor on the service, take the worst status (per
+    _STATUS_PRIORITY). When `source_monitor` is provided, that monitor
+    contributes `source_status` rather than its stored last_status —
+    useful from inside run_single_monitor where the source monitor's
+    last_status has been updated in-memory but not yet persisted.
+
+    Monitors with no last_status yet (never run) are ignored.
+    """
+    aggregated = source_status
+    for m in Monitor.objects(service=service, active=True):
+        if source_monitor is not None and m.id == source_monitor.id:
+            contribution = source_status
+        else:
+            contribution = m.last_status
+        if contribution:
+            aggregated = _worst(aggregated, contribution)
+    return aggregated
 
 
 def _resolve_response_time(thresholds, response_ms, failure_status):
@@ -383,10 +396,17 @@ def run_single_monitor(monitor_id: str):
             monitor.pending_status = None
             monitor.pending_since = None
         elif monitor.confirm_seconds == 0:
-            # Immediate mode: apply right away.
-            action = _apply_service_status(
-                service, candidate, monitor.name, result
-            )
+            # Immediate mode: aggregate across all active monitors before applying.
+            aggregated = _compute_service_status(service, monitor, candidate)
+            if aggregated != current:
+                action = _apply_service_status(
+                    service, aggregated, monitor.name, result
+                )
+            else:
+                action = (
+                    f"{monitor.name}: {candidate} "
+                    f"(service unchanged, aggregated={aggregated})"
+                )
             monitor.pending_status = None
             monitor.pending_since = None
         else:
@@ -403,9 +423,16 @@ def run_single_monitor(monitor_id: str):
                 # Same candidate — check if the window has elapsed.
                 elapsed = (now - monitor.pending_since).total_seconds()
                 if elapsed >= monitor.confirm_seconds:
-                    action = _apply_service_status(
-                        service, candidate, monitor.name, result
-                    )
+                    aggregated = _compute_service_status(service, monitor, candidate)
+                    if aggregated != current:
+                        action = _apply_service_status(
+                            service, aggregated, monitor.name, result
+                        )
+                    else:
+                        action = (
+                            f"{monitor.name}: {candidate} confirmed "
+                            f"(service unchanged, aggregated={aggregated})"
+                        )
                     monitor.pending_status = None
                     monitor.pending_since = None
                 else:
